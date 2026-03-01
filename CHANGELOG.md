@@ -4,6 +4,7 @@ All notable changes to agent-stuff are documented here.
 
 ## Unreleased
 
+* Added `/git-rebase-master` command that fetches the latest `main` or `master` from origin and rebases the current branch onto it. Auto-detects the default branch, shows a confirmation with commit count, and delegates merge-conflict resolution to the LLM when conflicts arise.
 * Added the `/plan` command for read-only planning mode with interactive brainstorming via the `ask_question` tool. Supports Shift+Tab mode toggle and an always-visible mode status indicator.
 * Added the `kbrainstorm` skill and extension providing a TUI-based `ask_question` tool with auto-edit mode and numeric shortcuts for rapid option selection during brainstorming sessions.
 * Added the `pr-update` skill for generating accurate PR descriptions by analyzing code diffs.
