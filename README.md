@@ -1,56 +1,91 @@
 # Agent Stuff
 
-This repository contains skills and extensions that I use in some form with projects.  Note that I usually fine-tune these for projects so they might not work without modification for you.
+Extensions, skills, and themes for [Pi](https://buildwithpi.ai/), the coding agent.
 
-It is released on npm as `mitsupi` for use with the [Pi](https://buildwithpi.ai/) package loader.
+> **Note:** These are tuned for my workflow. They may need modification for yours.
+
+## Installation
+
+Install as a Pi package (extensions, skills, and themes are all discovered automatically):
+
+```bash
+pi install npm:kostyay-agent-stuff
+```
+
+Or install from git:
+
+```bash
+pi install git:github.com/kostyay/agent-stuff
+```
+
+To try a single extension without installing the full package:
+
+```bash
+pi -e ./pi-extensions/status-bar.ts
+```
+
+## Extensions
+
+All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-contained Pi extension — one responsibility per file, no cross-extension dependencies.
+
+| Extension | Description |
+|-----------|-------------|
+| [`answer.ts`](pi-extensions/answer.ts) | Extracts questions from assistant responses and presents an interactive TUI for answering them one by one |
+| [`clear.ts`](pi-extensions/clear.ts) | `/clear` command — starts a new session (alias for `/new`) |
+| [`context.ts`](pi-extensions/context.ts) | `/context` command — shows loaded extensions, skills, AGENTS.md/CLAUDE.md, and token usage |
+| [`control.ts`](pi-extensions/control.ts) | Session control via Unix domain sockets for inter-session communication |
+| [`files.ts`](pi-extensions/files.ts) | `/files` command — file browser merging git status with session-referenced files, plus diff/edit actions |
+| [`kbrainstorm.ts`](pi-extensions/kbrainstorm.ts) | `ask_question` tool — interactive TUI for brainstorming with multiple-choice and freeform answers |
+| [`loop.ts`](pi-extensions/loop.ts) | `/loop` command — runs a follow-up prompt loop with a breakout condition for iterative coding |
+| [`notify.ts`](pi-extensions/notify.ts) | Desktop notifications (OSC 777) when the agent finishes and is waiting for input |
+| [`plan.ts`](pi-extensions/plan.ts) | `/plan` command — read-only planning mode that restricts tools and walks through a structured plan |
+| [`prompt-editor.ts`](pi-extensions/prompt-editor.ts) | Prompt mode selector (default/fast/precise) with per-mode model & thinking persistence |
+| [`review.ts`](pi-extensions/review.ts) | `/review` command — code review for uncommitted changes, PRs, or specific commits with optional auto-fix loop |
+| [`session-breakdown.ts`](pi-extensions/session-breakdown.ts) | `/session-breakdown` command — analyzes session usage (cost by model) with a GitHub-style activity graph |
+| [`status-bar.ts`](pi-extensions/status-bar.ts) | Rich two-line footer with model, context meter, token counts, cost, git status, and tool tally |
+| [`todos.ts`](pi-extensions/todos.ts) | File-backed todo manager with a TUI for listing and editing todos |
+| [`whimsical.ts`](pi-extensions/whimsical.ts) | Replaces "Thinking..." with random phrases like "Reticulating splines..." and "Consulting the void..." |
 
 ## Skills
 
-All skill files are in the [`skills`](skills) folder:
+Skills live in [`skills/`](skills). Each skill has a `SKILL.md` that the agent reads when the task matches.
 
-* [`/commit`](skills/commit) - Claude Skill for creating git commits using concise Conventional Commits-style subjects
-* [`/update-changelog`](skills/update-changelog) - Claude Skill for updating changelogs with notable user-facing changes
-* [`/ghidra`](skills/ghidra) - Claude Skill for reverse engineering binaries using Ghidra's headless analyzer
-* [`/github`](skills/github) - Claude Skill for interacting with GitHub via the `gh` CLI (issues, PRs, runs, and APIs)
-* [`/openscad`](skills/openscad) - Claude Skill for creating and rendering OpenSCAD 3D models and exporting STL files
-* [`/web-browser`](skills/web-browser) - Claude Skill for using Puppeteer in a Node environment to browse the web
-* [`/tmux`](skills/tmux) - Claude Skill for driving tmux directly with keystrokes and pane output scraping
-* [`/sentry`](skills/sentry) - Alternative way to access Sentry as a Claude Skill for reading issues
-* [`/pi-share`](skills/pi-share) - Claude Skill for loading and parsing session transcripts from shittycodingagent.ai
-* [`/anachb`](skills/anachb) - Claude Skill for querying Austrian public transport (VOR AnachB) for departures, routes, and disruptions
-* [`/oebb-scotty`](skills/oebb-scotty) - Claude Skill for Austrian rail travel planning via ÖBB Scotty API
-* [`/frontend-design`](skills/frontend-design) - Claude Skill for designing and implementing distinctive frontend interfaces
-* [`/uv`](skills/uv) - Claude Skill for using `uv` for Python dependency management and script execution
-* [`/mermaid`](skills/mermaid) - Claude Skill for creating and validating Mermaid diagrams with the official Mermaid CLI
+| Skill | Description |
+|-------|-------------|
+| [`commit`](skills/commit) | Git commits using Conventional Commits style |
+| [`github`](skills/github) | GitHub interactions via the `gh` CLI (issues, PRs, runs, API) |
+| [`go-code-simplifier`](skills/go-code-simplifier) | Simplify and refine Go code for clarity and maintainability (Go 1.26+) |
+| [`js-code-simplifier`](skills/js-code-simplifier) | Simplify and refine JavaScript/TypeScript code for clarity and maintainability |
+| [`kbrainstorm`](skills/kbrainstorm) | Collaborative brainstorming — explores intent, requirements, and design before implementation |
+| [`kchangelog`](skills/kchangelog) | Executive-style changelog entries tracked by branch, auto-promoted on release |
+| [`mermaid`](skills/mermaid) | Create and validate Mermaid diagrams with the Mermaid CLI |
+| [`native-web-search`](skills/native-web-search) | Quick web research with concise summaries and source URLs |
+| [`pi-share`](skills/pi-share) | Load and parse session transcripts from buildwithpi.ai URLs |
+| [`py-code-simplifier`](skills/py-code-simplifier) | Simplify and refine Python code for clarity and maintainability |
+| [`summarize`](skills/summarize) | Convert URLs or files (PDF/DOCX/HTML) to Markdown via `markitdown`, with optional summarization |
+| [`tmux`](skills/tmux) | Remote-control tmux sessions by sending keystrokes and scraping pane output |
+| [`web-browser`](skills/web-browser) | Browser automation via Chrome DevTools Protocol (clicking, forms, navigation) |
 
-## PI Coding Agent Extensions
+## Themes
 
-Custom extensions for the PI Coding Agent can be found in the [`pi-extensions`](pi-extensions) folder. The package also ships an extra extension focused on increasing reliability:
+Custom themes live in [`pi-themes/`](pi-themes).
 
-* [`answer.ts`](pi-extensions/answer.ts) - Interactive TUI for answering questions one by one.
-* [`context.ts`](pi-extensions/context.ts) - Quick context breakdown (extensions, skills, AGENTS.md/CLAUDE.md) + token usage; highlights skills that were actually read/loaded.
-* [`control.ts`](pi-extensions/control.ts) - Session control helpers (list controllable sessions etc.).
-* [`prompt-editor.ts`](pi-extensions/prompt-editor.ts) - In-editor prompt mode selector (default/fast/precise) with per-mode model & thinking persistence, global/project config, prompt history, and shortcuts (Ctrl+Shift+M, Ctrl+Space).
-* [`files.ts`](pi-extensions/files.ts) - Unified file browser that merges git status (dirty first) with session references, plus reveal/open/edit and diff actions.
-* [`go-to-bed.ts`](pi-extensions/go-to-bed.ts) - Late-night safety guard that encourages sleep during quiet hours (00:00-06:00 local time) and requires explicit confirmation to continue after midnight.
-* [`loop.ts`](pi-extensions/loop.ts) - Runs a prompt loop for rapid iterative coding with optional auto-continue control.
-* [`notify.ts`](pi-extensions/notify.ts) - Sends native desktop notifications when the agent finishes (OSC 777 compatible terminals).
-* [`review.ts`](pi-extensions/review.ts) - Code review command inspired by Codex. Supports reviewing uncommitted changes, against a base branch (PR style), specific commits, or with custom instructions, plus optional loop fixing mode that iterates review→fix until blocking findings are cleared. Includes Ctrl+R shortcut.
-* [`session-breakdown.ts`](pi-extensions/session-breakdown.ts) - Interactive TUI to analyze the last 7/30/90 days of Pi session usage (sessions + cost by model) with a GitHub-style usage graph.
-* [`todos.ts`](pi-extensions/todos.ts) - Todo manager extension with file-backed storage and a TUI for listing and editing todos.
-* [`uv.ts`](pi-extensions/uv.ts) - Helpers for working with uv (Python packaging/workflows).
-* [`whimsical.ts`](pi-extensions/whimsical.ts) - Replaces the default "Thinking..." message with random whimsical phrases like "Reticulating splines...", "Consulting the void...", or "Bribing the compiler...".
+| Theme | Description |
+|-------|-------------|
+| [`nightowl.json`](pi-themes/nightowl.json) | Night Owl color scheme |
 
-## PI Coding Agent Themes
+## Project Structure
 
-This repository includes custom themes for the PI Coding Agent. The themes can be found in the [`pi-themes`](pi-themes) folder and customize the appearance and behavior of the agent interface.
+```
+├── pi-extensions/     # Pi extensions (auto-discovered)
+├── skills/            # Agent skills (SKILL.md per skill)
+├── pi-themes/         # Custom themes
+├── plumbing-commands/ # Release automation templates
+├── AGENTS.md          # Agent-facing coding conventions
+├── CHANGELOG.md       # Release history
+└── package.json       # Pi package manifest
+```
 
-## Plumbing Commands
+## License
 
-These command files need customization before use. They live in [`plumbing-commands`](plumbing-commands):
-
-* [`/make-release`](plumbing-commands/make-release.md) - Automates repository release with version management
-
-### Release Management
-
-The plumbing release commands do not work without tuning!  But you can put claude to them and derive actually working ones.  I for instance use them in [absurd](h>
+Personal use. No warranty.
