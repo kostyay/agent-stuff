@@ -232,7 +232,7 @@ export default function planExtension(pi: ExtensionAPI) {
 
 	// ── Ctrl+Tab shortcut to toggle modes ────────────────────────────────
 
-	pi.registerShortcut("ctrl+tab", {
+	pi.registerShortcut("shift+tab", {
 		description: "Toggle between agent and plan mode",
 		handler: async (ctx) => {
 			if (planActive) {
