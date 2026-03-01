@@ -61,6 +61,7 @@ Skills live in [`skills/`](skills). Each skill has a `SKILL.md` that the agent r
 | [`mermaid`](skills/mermaid) | Create and validate Mermaid diagrams with the Mermaid CLI |
 | [`native-web-search`](skills/native-web-search) | Quick web research with concise summaries and source URLs |
 | [`pi-share`](skills/pi-share) | Load and parse session transcripts from buildwithpi.ai URLs |
+| [`pr-update`](skills/pr-update) | Update or create a pull request for the current branch with diff-based descriptions |
 | [`py-code-simplifier`](skills/py-code-simplifier) | Simplify and refine Python code for clarity and maintainability |
 | [`summarize`](skills/summarize) | Convert URLs or files (PDF/DOCX/HTML) to Markdown via `markitdown`, with optional summarization |
 | [`tmux`](skills/tmux) | Remote-control tmux sessions by sending keystrokes and scraping pane output |
