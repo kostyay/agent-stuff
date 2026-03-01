@@ -337,15 +337,23 @@ async function performCommit(
 			}
 			ctx.ui.notify(`Created branch '${suggestion}'`, "info");
 		} else {
-			const name = await ctx.ui.input(
-				`On '${currentBranch ?? "detached HEAD"}'. Enter branch name:`,
-				suggestion,
+			const useSuggestion = await ctx.ui.confirm(
+				`On '${currentBranch ?? "detached HEAD"}'`,
+				`Create branch '${suggestion}'?`,
 			);
-			if (!name?.trim()) {
-				ctx.ui.notify("Cancelled (no branch name)", "info");
-				return null;
+
+			let finalBranch: string;
+			if (useSuggestion) {
+				finalBranch = suggestion;
+			} else {
+				const name = await ctx.ui.input("Enter branch name:");
+				if (!name?.trim()) {
+					ctx.ui.notify("Cancelled (no branch name)", "info");
+					return null;
+				}
+				finalBranch = name.trim();
 			}
-			const finalBranch = name.trim();
+
 			const { code, stderr } = await pi.exec("git", ["checkout", "-b", finalBranch]);
 			if (code !== 0) {
 				ctx.ui.notify(`Failed to create branch '${finalBranch}': ${stderr}`, "error");

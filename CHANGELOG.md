@@ -4,6 +4,13 @@ All notable changes to agent-stuff are documented here.
 
 ## Unreleased
 
+* Added the `/plan` command for read-only planning mode with interactive brainstorming via the `ask_question` tool. Supports Shift+Tab mode toggle and an always-visible mode status indicator.
+* Added the `kbrainstorm` skill and extension providing a TUI-based `ask_question` tool with auto-edit mode and numeric shortcuts for rapid option selection during brainstorming sessions.
+* Added the `pr-update` skill for generating accurate PR descriptions by analyzing code diffs.
+* Added the Go code simplifier skill targeting Go 1.26+ and split the existing code-simplifier skill into separate JS/TS and Python variants for more targeted refinement.
+* Fixed the `/commit` side-branch prompt to show the AI-generated branch name in a confirm dialog instead of an empty text input. The `ctx.ui.input()` placeholder parameter is silently ignored by the TUI, so the flow now uses `confirm()` with the suggestion and falls back to `input()` only if declined.
+* Added the status bar extension for persistent footer status display and the `/clear` command for resetting conversation context. Desktop notifications now fire on `waiting_for_input` events.
+* Rewrote README and AGENTS.md with current extension inventory, installation instructions, and code quality guidelines including strict isolation and naming conventions.
 * Added Makefile with `release` and `changelog` targets for streamlined release workflows.
 * Replaced the update-changelog extension with the `kchangelog` skill for executive-style changelog generation tracked by branch name. The control extension now registers tools only when `--session-control` is enabled, improving performance and reducing noise.
 * Enhanced the review mode with loop fixing capabilities that detect blocking-aware patterns, support for empty sessions, and a revamped end-review flow. The files browser now appends git status to file labels for better context.
