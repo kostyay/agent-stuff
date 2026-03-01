@@ -4,6 +4,12 @@ All notable changes to agent-stuff are documented here.
 
 ## Unreleased
 
+* Added Makefile with `release` and `changelog` targets for streamlined release workflows.
+* Replaced the update-changelog extension with the `kchangelog` skill for executive-style changelog generation tracked by branch name. The control extension now registers tools only when `--session-control` is enabled, improving performance and reducing noise.
+* Enhanced the review mode with loop fixing capabilities that detect blocking-aware patterns, support for empty sessions, and a revamped end-review flow. The files browser now appends git status to file labels for better context.
+* Added the `native-web-search` skill for direct web search integration via CLI scripts.
+* Removed unused extensions (uv, go-to-bed, intercepted-commands) and skills (anachb, apple-mail, ghidra, google-workspace, oebb-scotty, openscad, sentry, uv) to streamline the package for kostyay's fork.
+
 ## 1.3.0
 
 * Added `/session-breakdown` command with interactive TUI showing sessions, messages, tokens, and cost over the last 7/30/90 days with a GitHub-style contribution calendar.

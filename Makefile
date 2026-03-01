@@ -20,4 +20,4 @@ release: changelog
 	echo "  git push origin main && git push origin $$TAG"
 
 changelog:
-	pi -p "Update the changelog using the kchangelog skill"
+	pi -p --model anthropic/claude-opus-4-6 "Update the changelog using the kchangelog skill"
