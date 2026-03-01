@@ -85,4 +85,8 @@ export default function (pi: ExtensionAPI) {
 		const { title, body } = formatNotification(lastText);
 		notify(title, body);
 	});
+
+	pi.events.on("waiting_for_input", (data: { question?: string }) => {
+		notify("π", data.question ?? "Waiting for input");
+	});
 }

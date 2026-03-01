@@ -63,6 +63,7 @@ export default function kbrainstorm(pi: ExtensionAPI) {
 
 			// If no options provided, show a simple freeform editor
 			if (!hasOptions) {
+				pi.events.emit("waiting_for_input", { question: params.question });
 				const result = await ctx.ui.custom<{ answer: string } | null>((tui, theme, _kb, done) => {
 					let cachedLines: string[] | undefined;
 
@@ -166,6 +167,7 @@ export default function kbrainstorm(pi: ExtensionAPI) {
 			// "Type something" starts with an empty editor.
 			const allOptions: DisplayOption[] = [...params.options!, { label: "Type something.", isOther: true }];
 
+			pi.events.emit("waiting_for_input", { question: params.question });
 			const result = await ctx.ui.custom<{ answer: string; wasCustom: boolean; index?: number } | null>(
 				(tui, theme, _kb, done) => {
 					let optionIndex = 0;
