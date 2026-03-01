@@ -7,17 +7,27 @@
  *   `/commit-push-pr`  — Update changelog, commit, push, and create/update a PR
  *                         with an AI-generated title and description.
  *
- * The changelog step sends the kchangelog skill as a user message, waits for
- * the agent to update CHANGELOG.md, then stages everything for the commit.
+ * The changelog step is fully scripted: git/gh context is gathered in code,
+ * a single Haiku call generates the summary, and the result is spliced into
+ * CHANGELOG.md programmatically.
  *
  * Uses `complete()` from `@mariozechner/pi-ai` for direct model invocation.
  */
 
 import { complete, getModel } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import {
+	type ChangelogContext,
+	buildChangelogPrompt,
+	getBranchSections,
+	parseChangelog,
+	promoteBranchToVersion,
+	spliceBranchSection,
+} from "../lib/changelog.ts";
 
 // ---------------------------------------------------------------------------
 // Model & constants
@@ -423,40 +433,186 @@ async function checkPrerequisites(pi: ExtensionAPI, ctx: ExtensionCommandContext
 // Shared changelog flow
 // ---------------------------------------------------------------------------
 
-/** Read the kchangelog SKILL.md content. Returns null if missing. */
-function readChangelogSkill(): string | null {
+/** Path to the CHANGELOG.md file in the working directory. */
+function changelogPath(): string {
+	return resolve(process.cwd(), "CHANGELOG.md");
+}
+
+/** Read CHANGELOG.md from the working directory. Returns null if missing. */
+function readChangelog(): string | null {
 	try {
-		return readFileSync(
-			resolve(PACKAGE_ROOT, "skills", "kchangelog", "SKILL.md"),
-			"utf-8",
-		);
+		return readFileSync(changelogPath(), "utf-8");
 	} catch {
 		return null;
 	}
 }
 
 /**
- * Run the kchangelog skill by sending it as a user message and waiting
- * for the agent to finish updating CHANGELOG.md.
+ * Reconcile branch sections that have been merged and released.
  *
- * Skipped silently if the skill file is missing.
+ * For each branch-named section, checks if it was merged via PR and if a
+ * release tag was created after the merge. If so, promotes the section
+ * heading to a versioned heading.
+ */
+async function reconcileChangelog(
+	pi: ExtensionAPI,
+	content: string,
+): Promise<string> {
+	const { sections } = parseChangelog(content);
+	const branches = getBranchSections(sections);
+
+	let result = content;
+	for (const branch of branches) {
+		const { stdout: prJson, code: prCode } = await pi.exec("gh", [
+			"pr", "list", "--state", "merged", "--head", branch,
+			"--limit", "1", "--json", "number,mergedAt",
+		]);
+		if (prCode !== 0 || !prJson.trim() || prJson.trim() === "[]") continue;
+
+		let prData: Array<{ number: number; mergedAt: string }>;
+		try {
+			prData = JSON.parse(prJson.trim());
+		} catch {
+			continue;
+		}
+		if (prData.length === 0) continue;
+
+		const prNumber = prData[0].number;
+		const mergeDate = prData[0].mergedAt.split("T")[0];
+
+		// Find a release tag created on or after the merge date
+		const { stdout: tagsRaw } = await pi.exec("git", ["tag", "--sort=-creatordate"]);
+		const tags = tagsRaw.trim().split("\n").filter(Boolean);
+
+		let releaseTag: string | null = null;
+		for (const tag of tags) {
+			const { stdout: tagDateRaw } = await pi.exec("git", [
+				"log", "-1", "--format=%ai", tag,
+			]);
+			const tagDate = tagDateRaw.trim().split(" ")[0];
+			if (tagDate >= mergeDate) {
+				releaseTag = tag;
+				break;
+			}
+		}
+		if (!releaseTag) continue;
+
+		// Extract version from tag (strip leading 'v' if present)
+		const version = releaseTag.replace(/^v/, "");
+		const { stdout: repoUrl } = await pi.exec("git", [
+			"remote", "get-url", "origin",
+		]);
+		const repoPath = repoUrl.trim()
+			.replace(/\.git$/, "")
+			.replace(/^git@github\.com:/, "https://github.com/");
+		const prUrl = `${repoPath}/pull/${prNumber}`;
+
+		result = promoteBranchToVersion(result, branch, version, prUrl, mergeDate);
+	}
+
+	return result;
+}
+
+/**
+ * Gather the git context needed for changelog generation.
+ *
+ * Reads commit log, diff stat, and diff relative to the base branch.
+ */
+async function gatherChangelogContext(
+	pi: ExtensionAPI,
+	branch: string,
+	baseBranch: string,
+	existingBody: string | null,
+): Promise<ChangelogContext> {
+	const base = `origin/${baseBranch}`;
+
+	const [logResult, statResult, diffResult, prResult] = await Promise.all([
+		pi.exec("git", ["log", `${base}..HEAD`, "--oneline"]),
+		pi.exec("git", ["diff", `${base}..HEAD`, "--stat"]),
+		pi.exec("git", ["diff", `${base}..HEAD`]),
+		pi.exec("gh", [
+			"pr", "list", "--head", branch, "--state", "all",
+			"--limit", "1", "--json", "number",
+		]),
+	]);
+
+	let prNumber: number | null = null;
+	try {
+		const prs = JSON.parse(prResult.stdout.trim());
+		if (Array.isArray(prs) && prs.length > 0) {
+			prNumber = prs[0].number;
+		}
+	} catch {
+		// No PR — that's fine
+	}
+
+	return {
+		branch,
+		prNumber,
+		commitLog: logResult.stdout.trim(),
+		diffStat: statResult.stdout.trim(),
+		diff: diffResult.stdout.trim(),
+		existingSectionBody: existingBody,
+	};
+}
+
+/**
+ * Scripted changelog update: gather context, reconcile, generate summary
+ * via a single Haiku call, and splice the result into CHANGELOG.md.
+ *
+ * Falls back gracefully if CHANGELOG.md is missing, the model is
+ * unavailable, or there are no commits on the branch.
  */
 async function performChangelog(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 ): Promise<void> {
-	const skillContent = readChangelogSkill();
-	if (!skillContent) {
-		ctx.ui.notify("kchangelog skill not found, skipping changelog update", "warning");
+	const branch = await getCurrentBranch(pi);
+	if (!branch) {
+		ctx.ui.notify("Detached HEAD — skipping changelog update", "warning");
 		return;
 	}
 
+	const defaultBranch = await getDefaultBranch(pi);
+	if (branch === defaultBranch) {
+		ctx.ui.notify("On default branch — skipping changelog update", "info");
+		return;
+	}
+
+	let content = readChangelog();
+	if (!content) {
+		content = "# Changelog\n\nAll notable changes are documented here.\n";
+	}
+
 	ctx.ui.notify("Updating changelog…", "info");
-	pi.sendUserMessage(
-		"Update the CHANGELOG.md for the current branch following this skill:\n\n" +
-		skillContent,
-	);
-	await ctx.waitForIdle();
+
+	// Step 1: Reconcile any merged+released branch sections
+	content = await reconcileChangelog(pi, content);
+
+	// Step 2: Find existing section body for this branch (for append context)
+	const { sections } = parseChangelog(content);
+	const existing = sections.find((s) => s.heading === branch);
+	const existingBody = existing?.body || null;
+
+	// Step 3: Gather git context
+	const changelogCtx = await gatherChangelogContext(pi, branch, defaultBranch, existingBody);
+	if (!changelogCtx.commitLog) {
+		ctx.ui.notify("No commits on branch — skipping changelog", "info");
+		return;
+	}
+
+	// Step 4: Generate summary via single Haiku call
+	const prompt = buildChangelogPrompt(changelogCtx);
+	const summary = await callHaiku(prompt, ctx);
+	if (!summary?.trim()) {
+		ctx.ui.notify("Could not generate changelog summary", "warning");
+		return;
+	}
+
+	// Step 5: Splice into file
+	content = spliceBranchSection(content, branch, summary.trim());
+	writeFileSync(changelogPath(), content, "utf-8");
+	ctx.ui.notify("Changelog updated", "info");
 }
 
 // ---------------------------------------------------------------------------
