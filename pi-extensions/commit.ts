@@ -502,9 +502,9 @@ async function performPr(
 ): Promise<void> {
 	let pr = await getExistingPr(pi);
 	if (!pr) {
-		ctx.ui.notify("Creating draft PR…", "info");
+		ctx.ui.notify("Creating PR…", "info");
 		const { code, stderr } = await pi.exec("gh", [
-			"pr", "create", "--draft", "--title", "WIP", "--body", "",
+			"pr", "create", "--title", "WIP", "--body", "",
 		]);
 		if (code !== 0) {
 			ctx.ui.notify(`Failed to create PR: ${stderr}`, "error");

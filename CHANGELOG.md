@@ -13,6 +13,9 @@ The `/commit-push` and `/commit-push-pr` commands now auto-create a side branch
 when invoked on the default branch, skipping the manual branch-name prompt via a
 new `autoBranch` option on `performCommit`.
 
+`/commit-push-pr` now creates PRs in ready mode by default instead of draft
+mode, streamlining the publish workflow for most use cases.
+
 ## Unreleased
 
 * Added the `/plan` command for read-only planning mode with interactive brainstorming via the `ask_question` tool. Supports Shift+Tab mode toggle and an always-visible mode status indicator.
