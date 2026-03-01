@@ -161,16 +161,14 @@ export default function kbrainstorm(pi: ExtensionAPI) {
 				};
 			}
 
-			// Options mode: show options list with inline editing
-			// Enter on any option opens an inline editor pre-filled with the option label.
-			// The user can accept as-is (Enter) or modify it. "Type something" starts empty.
+			// Options mode: selected option is always in edit mode with pre-filled text.
+			// Press Enter to submit as-is or after editing. Press 1-9 to quick-submit.
+			// "Type something" starts with an empty editor.
 			const allOptions: DisplayOption[] = [...params.options!, { label: "Type something.", isOther: true }];
 
 			const result = await ctx.ui.custom<{ answer: string; wasCustom: boolean; index?: number } | null>(
 				(tui, theme, _kb, done) => {
 					let optionIndex = 0;
-					let editMode = false;
-					let editSourceIndex = -1; // which option triggered the edit
 					let cachedLines: string[] | undefined;
 
 					const editorTheme: EditorTheme = {
@@ -188,21 +186,15 @@ export default function kbrainstorm(pi: ExtensionAPI) {
 					editor.onSubmit = (value) => {
 						const trimmed = value.trim();
 						if (trimmed) {
-							const sourceOpt = allOptions[editSourceIndex];
+							const sourceOpt = allOptions[optionIndex];
 							const isOther = sourceOpt?.isOther === true;
 							// If the answer matches the original option label exactly, treat as a selection
 							const wasEdited = isOther || trimmed !== sourceOpt?.label;
 							done({
 								answer: trimmed,
 								wasCustom: wasEdited,
-								index: isOther ? undefined : editSourceIndex + 1,
+								index: isOther ? undefined : optionIndex + 1,
 							});
-						} else {
-							// Empty submission — go back to option selection
-							editMode = false;
-							editSourceIndex = -1;
-							editor.setText("");
-							refresh();
 						}
 					};
 
@@ -211,51 +203,59 @@ export default function kbrainstorm(pi: ExtensionAPI) {
 						tui.requestRender();
 					}
 
-					function enterEditMode(index: number) {
-						editMode = true;
-						editSourceIndex = index;
+					function syncEditorToOption(index: number) {
 						const opt = allOptions[index];
 						if (opt.isOther) {
 							editor.setText("");
 						} else {
 							editor.setText(opt.label);
 						}
-						refresh();
 					}
 
+					function submitOption(index: number) {
+						const opt = allOptions[index];
+						if (opt.isOther) return; // can't quick-submit "Type something"
+						done({
+							answer: opt.label,
+							wasCustom: false,
+							index: index + 1,
+						});
+					}
+
+					// Start with first option pre-filled in editor
+					syncEditorToOption(0);
+
 					function handleInput(data: string) {
-						if (editMode) {
-							if (matchesKey(data, Key.escape)) {
-								editMode = false;
-								editSourceIndex = -1;
-								editor.setText("");
-								refresh();
-								return;
+						// Numeric shortcuts: press 1-9 to immediately submit that option
+						if (data.length === 1 && data >= "1" && data <= "9") {
+							const idx = parseInt(data, 10) - 1;
+							if (idx < allOptions.length) {
+								submitOption(idx);
 							}
-							editor.handleInput(data);
-							refresh();
 							return;
 						}
 
 						if (matchesKey(data, Key.up)) {
 							optionIndex = Math.max(0, optionIndex - 1);
+							syncEditorToOption(optionIndex);
 							refresh();
 							return;
 						}
 						if (matchesKey(data, Key.down)) {
 							optionIndex = Math.min(allOptions.length - 1, optionIndex + 1);
+							syncEditorToOption(optionIndex);
 							refresh();
-							return;
-						}
-
-						if (matchesKey(data, Key.enter)) {
-							enterEditMode(optionIndex);
 							return;
 						}
 
 						if (matchesKey(data, Key.escape)) {
 							done(null);
+							return;
 						}
+
+						// All other input (including Enter) goes to the editor
+						editor.handleInput(data);
+						refresh();
 					}
 
 					function render(width: number): string[] {
@@ -285,33 +285,25 @@ export default function kbrainstorm(pi: ExtensionAPI) {
 						for (let i = 0; i < allOptions.length; i++) {
 							const opt = allOptions[i];
 							const selected = i === optionIndex;
-							const isEditing = editMode && i === editSourceIndex;
-							const isOther = opt.isOther === true;
 							const prefix = selected ? theme.fg("accent", "> ") : "  ";
 
-							if (isEditing) {
-								add(prefix + theme.fg("accent", `${i + 1}. ${opt.label} ✎`));
-								// Show inline editor directly below this option
+							if (selected) {
+								add(prefix + theme.fg("accent", `${i + 1}. ${opt.label}`));
+								// Show inline editor directly below selected option
 								for (const line of editor.render(width - 6)) {
 									add(`     ${line}`);
 								}
-							} else if (selected) {
-								add(prefix + theme.fg("accent", `${i + 1}. ${opt.label}`));
 							} else {
 								add(`  ${theme.fg("text", `${i + 1}. ${opt.label}`)}`);
 							}
 
-							if (opt.description && !isEditing) {
+							if (opt.description && !selected) {
 								add(`     ${theme.fg("muted", opt.description)}`);
 							}
 						}
 
 						lines.push("");
-						if (editMode) {
-							add(theme.fg("dim", " Enter to submit • Shift+Enter for newline • Esc to go back"));
-						} else {
-							add(theme.fg("dim", " ↑↓ navigate • Enter to edit/select • Esc to skip"));
-						}
+						add(theme.fg("dim", " ↑↓ navigate • Enter to submit • 1-9 quick select • Esc to skip"));
 						add(theme.fg("accent", "─".repeat(width)));
 
 						cachedLines = lines;
