@@ -29,9 +29,11 @@
  * ```
  *
  * Usage:
- * - `pi -e ./sandbox`         — sandbox enabled with default/config settings
+ * - `pi -e ./sandbox`             — sandbox enabled with default/config settings
  * - `pi -e ./sandbox --no-sandbox` — disable sandboxing
- * - `/sandbox`                — show current sandbox configuration
+ * - `/sandbox`                    — show current status and configuration
+ * - `/sandbox on`                 — enable sandbox at runtime
+ * - `/sandbox off`                — disable sandbox at runtime
  *
  * Linux also requires: bubblewrap, socat, ripgrep
  */
@@ -249,7 +251,7 @@ function formatConfig(config: SandboxConfig, theme: ExtensionContext["ui"]["them
 // Extension entry point
 // ---------------------------------------------------------------------------
 
-export default function (pi: ExtensionAPI) {
+export default function sandboxExtension(pi: ExtensionAPI) {
 	pi.registerFlag("no-sandbox", {
 		description: "Disable OS-level sandboxing for bash commands",
 		type: "boolean",
@@ -259,6 +261,10 @@ export default function (pi: ExtensionAPI) {
 	const localCwd = process.cwd();
 	const localBash = createBashTool(localCwd);
 
+	// Tracks whether the sandbox is currently active. Updated by session_start
+	// and /sandbox on|off. Checked synchronously by user_bash.
+	let sandboxActive = false;
+
 	// Sandbox readiness — awaited by the bash tool to avoid races.
 	// Resolves to true when sandbox is active, false otherwise.
 	let sandboxReady: Promise<boolean> = Promise.resolve(false);
@@ -267,6 +273,48 @@ export default function (pi: ExtensionAPI) {
 	const sandboxedBash = createBashTool(localCwd, {
 		operations: createSandboxedBashOps(),
 	});
+
+	/** Initialize the sandbox runtime with the given config. */
+	async function activateSandbox(config: SandboxConfig, ctx: ExtensionContext): Promise<boolean> {
+		const platform = process.platform;
+		if (platform !== "darwin" && platform !== "linux") {
+			sandboxActive = false;
+			updateStatus(ctx, config, false);
+			ctx.ui.notify(`Sandbox not supported on ${platform}`, "warning");
+			return false;
+		}
+
+		try {
+			await SandboxManager.initialize({
+				network: config.network,
+				filesystem: config.filesystem,
+				ignoreViolations: config.ignoreViolations,
+				enableWeakerNestedSandbox: config.enableWeakerNestedSandbox,
+			});
+			sandboxActive = true;
+			updateStatus(ctx, config, true);
+			return true;
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			sandboxActive = false;
+			updateStatus(ctx, config, false);
+			ctx.ui.notify(`Sandbox init failed: ${msg}`, "error");
+			return false;
+		}
+	}
+
+	/** Tear down the sandbox runtime. */
+	async function deactivateSandbox(ctx: ExtensionContext): Promise<void> {
+		if (sandboxActive) {
+			try {
+				await SandboxManager.reset();
+			} catch {
+				// ignore cleanup errors
+			}
+		}
+		sandboxActive = false;
+		updateStatus(ctx, loadConfig(ctx.cwd), false);
+	}
 
 	// ---- Override the built-in bash tool ----
 	pi.registerTool({
@@ -283,9 +331,7 @@ export default function (pi: ExtensionAPI) {
 
 	// ---- Sandbox user ! / !! commands too ----
 	pi.on("user_bash", () => {
-		// This is sync — we can't await sandboxReady here.
-		// But user_bash only fires after session_start completes.
-		// We return operations; pi uses them only if sandbox is active.
+		if (!sandboxActive) return;
 		return { operations: createSandboxedBashOps() };
 	});
 
@@ -295,6 +341,7 @@ export default function (pi: ExtensionAPI) {
 
 		if (noSandbox) {
 			sandboxReady = Promise.resolve(false);
+			sandboxActive = false;
 			updateStatus(ctx, loadConfig(ctx.cwd), false);
 			ctx.ui.notify("Sandbox disabled via --no-sandbox", "warning");
 			return;
@@ -304,67 +351,81 @@ export default function (pi: ExtensionAPI) {
 
 		if (!config.enabled) {
 			sandboxReady = Promise.resolve(false);
+			sandboxActive = false;
 			updateStatus(ctx, config, false);
 			ctx.ui.notify("Sandbox disabled via config", "info");
 			return;
 		}
 
-		const platform = process.platform;
-		if (platform !== "darwin" && platform !== "linux") {
-			sandboxReady = Promise.resolve(false);
-			updateStatus(ctx, config, false);
-			ctx.ui.notify(`Sandbox not supported on ${platform}`, "warning");
-			return;
-		}
-
 		sandboxReady = (async () => {
-			try {
-				await SandboxManager.initialize({
-					network: config.network,
-					filesystem: config.filesystem,
-					ignoreViolations: config.ignoreViolations,
-					enableWeakerNestedSandbox: config.enableWeakerNestedSandbox,
-				});
-
-				updateStatus(ctx, config, true);
-				ctx.ui.notify("Sandbox initialized", "info");
-				return true;
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				updateStatus(ctx, config, false);
-				ctx.ui.notify(`Sandbox init failed: ${msg}`, "error");
-				return false;
-			}
+			const ok = await activateSandbox(config, ctx);
+			if (ok) ctx.ui.notify("Sandbox initialized", "info");
+			return ok;
 		})();
 
 		await sandboxReady;
 	});
 
 	// ---- Cleanup ----
-	pi.on("session_shutdown", async () => {
-		const active = await sandboxReady;
-		if (active) {
-			try {
-				await SandboxManager.reset();
-			} catch {
-				// ignore cleanup errors
-			}
-		}
+	pi.on("session_shutdown", async (_event, ctx) => {
+		await deactivateSandbox(ctx);
 	});
 
-	// ---- /sandbox command ----
+	// ---- /sandbox command — show status, or toggle with on/off ----
 	pi.registerCommand("sandbox", {
-		description: "Show current sandbox configuration",
-		handler: async (_args, ctx) => {
-			const active = await sandboxReady;
+		description: "Show sandbox status, or toggle with: /sandbox on | /sandbox off",
+		getArgumentCompletions: (prefix: string) => {
+			const items = [
+				{ value: "on", label: "on", description: "Enable sandbox" },
+				{ value: "off", label: "off", description: "Disable sandbox" },
+			];
+			const filtered = items.filter((i) => i.value.startsWith(prefix));
+			return filtered.length > 0 ? filtered : null;
+		},
+		handler: async (args, ctx) => {
+			const arg = args?.trim().toLowerCase();
 
-			if (!active) {
-				ctx.ui.notify("Sandbox is currently disabled", "warning");
+			// ---- /sandbox off ----
+			if (arg === "off") {
+				if (!sandboxActive) {
+					ctx.ui.notify("Sandbox is already off", "info");
+					return;
+				}
+				await deactivateSandbox(ctx);
+				sandboxReady = Promise.resolve(false);
+				ctx.ui.notify("Sandbox disabled", "warning");
 				return;
 			}
 
+			// ---- /sandbox on ----
+			if (arg === "on") {
+				if (sandboxActive) {
+					ctx.ui.notify("Sandbox is already on", "info");
+					return;
+				}
+				const config = loadConfig(ctx.cwd);
+				sandboxReady = activateSandbox(config, ctx).then((ok) => {
+					if (ok) ctx.ui.notify("Sandbox enabled", "success");
+					return ok;
+				});
+				await sandboxReady;
+				return;
+			}
+
+			// ---- /sandbox (no args) — show status + config ----
 			const config = loadConfig(ctx.cwd);
-			ctx.ui.notify(formatConfig(config, ctx.ui.theme), "info");
+			const { theme } = ctx.ui;
+			const status = sandboxActive
+				? theme.fg("success", "🔒 ON")
+				: theme.fg("warning", "🔓 OFF");
+			const hint = sandboxActive
+				? theme.fg("dim", "  Use /sandbox off to disable")
+				: theme.fg("dim", "  Use /sandbox on to enable");
+
+			ctx.ui.notify(
+				`${theme.fg("accent", "Sandbox Status:")} ${status}\n${hint}\n\n${formatConfig(config, theme)}`,
+				"info",
+			);
 		},
 	});
 }
