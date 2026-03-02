@@ -9,7 +9,8 @@
   "readme": "README.md",
   "type": "module",
   "scripts": {
-    "test": "node --experimental-strip-types --test tests/*.test.ts"
+    "lint": "eslint pi-extensions/ tests/",
+    "test": "npm run lint && node --experimental-strip-types --test tests/*.test.ts"
   },
   "keywords": [
     "pi-package",
@@ -29,8 +30,12 @@
     ]
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-tui": "*"
+  },
+  "devDependencies": {
+    "eslint": "^10.0.2",
+    "typescript-eslint": "^8.56.1"
   }
 }
