@@ -22,7 +22,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/force-push-on-rejection
+
+
+## refactor/type-safety-and-ui-updates
+
+Improved type safety across the extension system by adding explicit TypeScript type annotations and migrating from string-based to typed enum patterns for UI colors and notification levels (#13). Reorganized the linting pipeline to include TypeScript type checking via `tsc --noEmit`, catching previously undetected type errors in message content handling, component rendering, and event data access. Standardized UI component property names for consistency (e.g., `selectedBg` → `selectedPrefix`, `matchHighlight` → `selectedText`) and updated notification severity levels to use semantic theme colors (`success`/`info` → `info`/`accent`). Removed ~2,100 lines of unused code and added comprehensive test coverage for the plan-ask extension, improving maintainability and reducing technical debt.
+
+## [1.0.1](https://github.com/kostyay/agent-stuff/pull/12) - 2026-03-02
 
 Enhanced the push workflow to gracefully handle rejected pushes by prompting users to force-push with `--force-with-lease` (#12). When a normal push fails due to non-fast-forward errors (common after rebasing), users are now prompted to safely force-push rather than failing silently. The implementation includes rejection detection via stderr pattern matching and proper error handling for both standard and force-push attempts, with user-facing notifications at each step.
 
