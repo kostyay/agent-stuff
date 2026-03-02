@@ -523,7 +523,9 @@ async function performCommit(
 /**
  * Push the current branch to origin.
  *
- * Returns `true` on success, `false` on failure (notifications already shown).
+ * When a normal push is rejected (e.g. after a rebase), prompts the user
+ * to force-push with `--force-with-lease`. Returns `true` on success,
+ * `false` on failure or cancellation (notifications already shown).
  */
 async function performPush(
 	pi: ExtensionAPI,
@@ -531,14 +533,41 @@ async function performPush(
 ): Promise<boolean> {
 	ctx.ui.notify("Pushing…", "info");
 	const branch = await getCurrentBranch(pi);
+	const ref = branch ?? "HEAD";
+
 	const { code, stderr } = await pi.exec("git", [
-		"push", "--set-upstream", "origin", branch ?? "HEAD",
+		"push", "--set-upstream", "origin", ref,
 	]);
-	if (code !== 0) {
+
+	if (code === 0) {
+		ctx.ui.notify("Pushed", "info");
+		return true;
+	}
+
+	// Check if the failure is a non-fast-forward rejection
+	const isRejected = /rejected|non-fast-forward|failed to push/i.test(stderr);
+	if (!isRejected || !ctx.hasUI) {
 		ctx.ui.notify(`Push failed: ${stderr}`, "error");
 		return false;
 	}
-	ctx.ui.notify("Pushed", "info");
+
+	const forcePush = await ctx.ui.confirm(
+		"Push rejected (history has diverged)",
+		"Force push with --force-with-lease?",
+	);
+	if (!forcePush) {
+		ctx.ui.notify("Push cancelled", "info");
+		return false;
+	}
+
+	const { code: forceCode, stderr: forceErr } = await pi.exec("git", [
+		"push", "--force-with-lease", "--set-upstream", "origin", ref,
+	]);
+	if (forceCode !== 0) {
+		ctx.ui.notify(`Force push failed: ${forceErr}`, "error");
+		return false;
+	}
+	ctx.ui.notify("Force pushed", "info");
 	return true;
 }
 
