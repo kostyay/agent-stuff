@@ -14,7 +14,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/profile-badge-display
+
+
+## feat/profile-sync-script
+
+Added a new profile synchronization utility script for Pi configuration management (#9). The `sync-profiles.ts` script enables users to merge configuration from a source profile to a destination profile, supporting deep-merge semantics for `settings.json` and `keybindings.json` (with source values winning on conflicts), while wholesale-copying extension JSON files. The tool operates in dry-run mode by default and provides detailed diff output showing additions, changes, removals, and unchanged entries before writing changes with the `--apply` flag, making it safe for managing multiple Pi profiles without accidental overwrites.
+
+## [1.0.0](https://github.com/kostyay/agent-stuff/pull/8) - 2026-03-02
 
 Added a color-coded profile badge to the status bar that displays the current profile name and authentication method (#8). The badge uses a deterministically hashed background color derived from the profile name for easy visual distinction across multiple profiles, appearing only when `PI_CODING_AGENT_DIR` points to a non-default directory. Supporting utilities including `hashString`, `hslToRgb`, and `buildProfileBadge` were extracted as reusable functions, along with comprehensive unit tests covering color conversion, token formatting, and profile detection logic. The extension now provides richer visual feedback about the active authentication context (OAuth vs. API key) at a glance.
 
