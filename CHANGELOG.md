@@ -2,6 +2,7 @@
 
 All notable changes to agent-stuff are documented here.
 
+
 ## git-rebase-master
 
 Added `/git-rebase-master` command that fetches the latest `main` or `master`
@@ -15,6 +16,10 @@ new `autoBranch` option on `performCommit`.
 
 `/commit-push-pr` now creates PRs in ready mode by default instead of draft
 mode, streamlining the publish workflow for most use cases.
+
+## docs/update-readme-and-sandbox
+
+The commit extension was overhauled to dramatically reduce token consumption by gathering changelog context deterministically through git/gh commands and calling the model once for summary generation, with the new `/merge-pr` command streamlining the full pre-merge workflow including changelog updates, incremental PR description refresh, and squash-merge with cleanup. The sandbox extension now supports runtime toggling via `/sandbox on` and `/sandbox off` commands with a visual status indicator, eliminating the need to restart. An auto-release workflow now replaces the npm-publish pipeline, automatically creating GitHub tags and releases on main merges when `package.json` version changes, with release notes extracted from `CHANGELOG.md` via a new Python script that falls back to the git commit log. (#3)
 
 ## Unreleased
 
