@@ -24,7 +24,13 @@ sorted alphabetically. The sandbox extension now supports runtime toggling via
 `/sandbox on` and `/sandbox off` commands with argument completions, replacing
 the restart-required workflow. Repository metadata was updated with accurate
 description, topic tags, and free-tier hardening (squash-only merges,
-auto-delete branches, Dependabot alerts enabled). (#3)
+auto-delete branches, Dependabot alerts enabled).
+
+Replaced the npm-publish workflow with an auto-release workflow that creates a
+GitHub tag and release on every merge to main when `package.json` contains a new
+version. Release notes are extracted from `CHANGELOG.md` via a Python script
+that checks `## Unreleased`, then version-matched headings, falling back to the
+git commit log. (#3)
 
 ## Unreleased
 
