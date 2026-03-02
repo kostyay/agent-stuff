@@ -3,6 +3,11 @@
 All notable changes to agent-stuff are documented here.
 
 
+
+## docs/update-readme-extensions
+
+Updated the README to document two new extensions and clarify project structure. Added [`git-rebase-master.ts`](#4) extension which automates rebasing against main/master branches with LLM-powered conflict resolution, and documented the new [`sandbox/`](#4) directory enabling OS-level sandboxing for bash commands via `sandbox-exec` on macOS and bubblewrap on Linux with configurable filesystem and network restrictions. Also clarified the `.github/` directory location in the project structure overview.
+
 ## git-rebase-master
 
 Added `/git-rebase-master` command that fetches the latest `main` or `master`
