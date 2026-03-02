@@ -32,17 +32,26 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | [`files.ts`](pi-extensions/files.ts) | `/files` command — file browser merging git status with session-referenced files, plus diff/edit actions |
 | [`git-rebase-master.ts`](pi-extensions/git-rebase-master.ts) | `/git-rebase-master` command — fetches latest main/master and rebases current branch with automatic LLM conflict resolution |
 | [`kbrainstorm.ts`](pi-extensions/kbrainstorm.ts) | `ask_question` tool — interactive TUI for brainstorming with multiple-choice and freeform answers |
+| [`kt/`](pi-extensions/kt) | `kt` tool — git-backed ticket tracker storing tickets as markdown files in `.tickets/` with hierarchy, dependencies, and status workflow |
 | [`loop.ts`](pi-extensions/loop.ts) | `/loop` command — runs a follow-up prompt loop with a breakout condition for iterative coding |
 | [`notify.ts`](pi-extensions/notify.ts) | Desktop notifications (OSC 777) when the agent finishes and is waiting for input |
-| [`plan.ts`](pi-extensions/plan.ts) | `/plan` command — read-only planning mode that restricts tools and walks through a structured plan |
+| [`plan-ask.ts`](pi-extensions/plan-ask.ts) | `/plan`, `/ask` commands and Shift+Tab mode rotation (🤖 agent → ❓ ask → 📋 plan) with read-only tool restrictions for safe exploration |
 | [`prompt-editor.ts`](pi-extensions/prompt-editor.ts) | Prompt mode selector (default/fast/precise) with per-mode model & thinking persistence |
 | [`review.ts`](pi-extensions/review.ts) | `/review` command — code review for uncommitted changes, PRs, or specific commits with optional auto-fix loop |
 | [`sandbox/`](pi-extensions/sandbox) | OS-level sandboxing for bash commands via `sandbox-exec` (macOS) / bubblewrap (Linux) with configurable filesystem and network restrictions |
 | [`session-breakdown.ts`](pi-extensions/session-breakdown.ts) | `/session-breakdown` command — analyzes session usage (cost by model) with a GitHub-style activity graph |
 | [`simplify.ts`](pi-extensions/simplify.ts) | `/simplify` command — detects the dominant language of uncommitted changes and runs the matching code-simplifier skill |
-| [`status-bar.ts`](pi-extensions/status-bar.ts) | Rich two-line footer with model, context meter, token counts, cost, git status, and tool tally |
+| [`status-bar.ts`](pi-extensions/status-bar.ts) | Rich two-line footer with model, context meter, token counts, cost, git status, tool tally, and color-coded profile badge |
 | [`todos.ts`](pi-extensions/todos.ts) | File-backed todo manager with a TUI for listing and editing todos |
 | [`whimsical.ts`](pi-extensions/whimsical.ts) | Replaces "Thinking..." with random phrases like "Reticulating splines..." and "Consulting the void..." |
+
+## Shared Libraries
+
+Reusable utilities in [`lib/`](lib), importable by extensions:
+
+| Library | Description |
+|---------|-------------|
+| [`timed-confirm.ts`](lib/timed-confirm.ts) | Timed confirmation dialog with auto-resolve countdown — used by commit/merge workflows |
 
 ## Skills
 
@@ -72,14 +81,24 @@ Custom themes live in [`pi-themes/`](pi-themes).
 |-------|-------------|
 | [`nightowl.json`](pi-themes/nightowl.json) | Night Owl color scheme |
 
+## Agent Profiles
+
+The [`profiles/`](profiles) directory contains global AGENTS.md files for different Pi profiles (e.g. `agent-personal`). Run [`sync-agents.sh`](sync-agents.sh) to symlink them into `~/.pi/<profile>/AGENTS.md` for centralized management across agent instances.
+
 ## Project Structure
 
 ```
-├── .github/           # CI workflows and release scripts
+├── .github/           # CI workflows (auto-release) and scripts
+├── lib/               # Shared TypeScript utilities (timed-confirm, etc.)
 ├── pi-extensions/     # Pi extensions (auto-discovered)
+├── profiles/          # Global AGENTS.md files per Pi profile
+├── scripts/           # Tooling (sync-profiles.ts)
 ├── skills/            # Agent skills (SKILL.md per skill)
+├── tests/             # Unit tests (node --test)
 ├── pi-themes/         # Custom themes
 ├── plumbing-commands/ # Release automation templates
+├── eslint.config.js   # ESLint + typescript-eslint config
+├── sync-agents.sh     # Symlink profiles into ~/.pi/
 ├── Makefile           # Release and changelog targets
 ├── AGENTS.md          # Agent-facing coding conventions
 ├── CHANGELOG.md       # Release history

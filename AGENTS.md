@@ -57,7 +57,7 @@ Extensions must **not** import from or depend on other extensions in this repo. 
 
 **Wrong:**
 ```typescript
-// plan.ts
+// plan-ask.ts
 import { askQuestion } from "./kbrainstorm"; // ❌ Cross-extension dependency
 ```
 
@@ -98,7 +98,7 @@ agent-stuff/
 │   ├── clear.ts               # /clear command
 │   ├── notify.ts              # Desktop notifications on agent_end
 │   ├── kbrainstorm.ts         # ask_question tool (interactive TUI)
-│   ├── plan.ts                # /plan command (read-only planning)
+│   ├── plan-ask.ts             # /plan and /ask commands (three-way mode rotation)
 │   ├── status-bar.ts          # Footer status display
 │   └── ...
 ├── skills/                    # Agent skills (SKILL.md + support files)
@@ -118,9 +118,9 @@ Most extensions should be single `.ts` files. This is the preferred style for th
 
 ### Extract `ask_question` from `kbrainstorm.ts`
 
-The `ask_question` tool in `kbrainstorm.ts` is used by the `plan.ts` extension (via LLM tool calls, not direct import). This creates a runtime coupling: `plan.ts` assumes `ask_question` is available.
+The `ask_question` tool in `kbrainstorm.ts` is used by the `plan-ask.ts` extension (via LLM tool calls, not direct import). This creates a runtime coupling: `plan-ask.ts` assumes `ask_question` is available.
 
-**Target state:** Extract the `ask_question` tool into its own `ask-question.ts` extension. The `kbrainstorm` skill's `SKILL.md` should reference the tool by name, and `plan.ts` should document that it expects the `ask_question` tool to be registered by a separate extension.
+**Target state:** Extract the `ask_question` tool into its own `ask-question.ts` extension. The `kbrainstorm` skill's `SKILL.md` should reference the tool by name, and `plan-ask.ts` should document that it expects the `ask_question` tool to be registered by a separate extension.
 
 ---
 
