@@ -18,7 +18,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## chore/add-agent-profiles-sync
+
+
+## refactor/auto-version-release-workflow
+
+Implemented automatic semantic versioning and tag-based releases in the CI workflow (#11), eliminating the need for manual version bumps in package.json. The release pipeline now automatically detects the latest git tag, counts commits since that tag, and bumps the patch version accordingly—skipping releases when no new commits exist. Additionally refactored the `/plan` command into a unified `plan-ask.ts` extension that introduces a three-way mode rotation (Agent → Ask → Plan) accessible via Shift+Tab, with read-only tool restrictions and safe command filtering for ask and plan modes to enable safe exploration of the codebase.
+
+## [1.0.0](https://github.com/kostyay/agent-stuff/pull/10) - 2026-03-02
 
 Added agent profiles and synchronization tooling (#10) to standardize development workflows across agent instances. The `profiles/AGENTS.agent-personal.md` file establishes global development standards including task routing via extensions, coding philosophy (no speculative features, bias toward action), and hard limits on code complexity and function signatures. A new `sync-agents.sh` script enables automatic symlink-based profile distribution to agent directories, allowing centralized management of agent configurations. Additionally updated Go and Python code-simplifier skills with explicit tooling requirements (newest stable Go versions, Python 3.13 with `uv`/`ruff`/`pytest`) and verification workflows to ensure consistent code quality standards.
 
