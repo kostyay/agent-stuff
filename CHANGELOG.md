@@ -4,11 +4,19 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## docs/update-readme-extensions
+
+
+
+
+## refactor/plan-mode-restructure
+
+Plan mode now supports two entry points: **Shift+Tab** for instant toggling with the planning system prompt injected via `before_agent_start` (#5), and the existing **/plan** command for one-shot planning flows. The restructuring separates the reusable `PLAN_SYSTEM_PROMPT` constant from command-specific logic, enabling seamless mode switching without prompting for input on toggle. Read-only tool restrictions and bash command filtering remain intact, maintaining the safety guarantees of planning mode while improving UX for users who frequently switch between exploratory and implementation phases.
+
+## [1.0.0](https://github.com/kostyay/agent-stuff/pull/4) - 2026-03-02
 
 Updated the README to document two new extensions and clarify project structure. Added [`git-rebase-master.ts`](#4) extension which automates rebasing against main/master branches with LLM-powered conflict resolution, and documented the new [`sandbox/`](#4) directory enabling OS-level sandboxing for bash commands via `sandbox-exec` on macOS and bubblewrap on Linux with configurable filesystem and network restrictions. Also clarified the `.github/` directory location in the project structure overview.
 
-## git-rebase-master
+## [1.0.0](https://github.com/kostyay/agent-stuff/pull/2) - 2026-03-02
 
 Added `/git-rebase-master` command that fetches the latest `main` or `master`
 from origin and rebases the current branch onto it. The extension auto-detects
@@ -22,7 +30,7 @@ new `autoBranch` option on `performCommit`.
 `/commit-push-pr` now creates PRs in ready mode by default instead of draft
 mode, streamlining the publish workflow for most use cases.
 
-## docs/update-readme-and-sandbox
+## [1.0.0](https://github.com/kostyay/agent-stuff/pull/3) - 2026-03-02
 
 The commit extension was overhauled to dramatically reduce token consumption by gathering changelog context deterministically through git/gh commands and calling the model once for summary generation, with the new `/merge-pr` command streamlining the full pre-merge workflow including changelog updates, incremental PR description refresh, and squash-merge with cleanup. The sandbox extension now supports runtime toggling via `/sandbox on` and `/sandbox off` commands with a visual status indicator, eliminating the need to restart. An auto-release workflow now replaces the npm-publish pipeline, automatically creating GitHub tags and releases on main merges when `package.json` version changes, with release notes extracted from `CHANGELOG.md` via a new Python script that falls back to the git commit log. (#3)
 
