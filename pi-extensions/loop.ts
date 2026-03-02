@@ -219,7 +219,7 @@ export default function loopExtension(pi: ExtensionAPI): void {
 
 		pi.sendMessage({
 			customType: "loop",
-			content: loopState.prompt,
+			content: loopState.prompt ?? "",
 			display: true
 		}, {
 			deliverAs: "followUp",

@@ -1,4 +1,5 @@
-import type { ExtensionAPI, ExtensionContext, ModelSelectEvent, ThinkingLevel } from "@mariozechner/pi-coding-agent";
+import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { CustomEditor, ModelSelectorComponent, SettingsManager } from "@mariozechner/pi-coding-agent";
 import path from "node:path";
 import os from "node:os";
@@ -1211,12 +1212,13 @@ export default function (pi: ExtensionAPI) {
 			if (tokens[0] === "store") {
 				await ensureRuntime(pi, ctx);
 
-				let target = tokens[1];
+				let target: string | undefined = tokens[1];
 				if (!target) {
 					if (!ctx.hasUI) return;
 					const names = orderedModeNames(runtime.data.modes);
-					target = await ctx.ui.select("Store current selection into mode", names);
-					if (!target) return;
+					const selected = await ctx.ui.select("Store current selection into mode", names);
+					if (!selected) return;
+					target = selected;
 				}
 
 				if (target === CUSTOM_MODE_NAME) {
@@ -1285,7 +1287,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 
-	pi.on("model_select", async (event: ModelSelectEvent, ctx) => {
+	pi.on("model_select", async (event, ctx) => {
 		// Always track the last observed model for overlay/store correctness.
 		lastObservedModel = { provider: event.model.provider, modelId: event.model.id };
 

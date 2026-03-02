@@ -21,7 +21,7 @@
 
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, TextContent } from "@mariozechner/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ThemeColor } from "@mariozechner/pi-coding-agent";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -242,15 +242,17 @@ const DEFAULT_AGENT_TOOLS: string[] = ["read", "bash", "edit", "write"];
 
 // ── Status display ───────────────────────────────────────────────────────
 
-interface ModeDisplay {
+/** Display metadata for each mode — icon, label, and theme color. */
+export interface ModeDisplay {
 	icon: string;
 	label: string;
-	color: "success" | "info" | "warning";
+	color: ThemeColor;
 }
 
-const MODE_DISPLAY: Record<Mode, ModeDisplay> = {
+/** Per-mode display configuration used in the status bar and notifications. */
+export const MODE_DISPLAY: Record<Mode, ModeDisplay> = {
 	[AGENT]: { icon: "🤖", label: "agent", color: "success" },
-	[ASK]: { icon: "❓", label: "ask", color: "info" },
+	[ASK]: { icon: "❓", label: "ask", color: "accent" },
 	[PLAN]: { icon: "📋", label: "plan", color: "warning" },
 };
 
@@ -431,7 +433,7 @@ export default function planAskExtension(pi: ExtensionAPI) {
 
 		if (action === "Create tickets with /kt-create") {
 			setMode(AGENT, ctx);
-			ctx.ui.runCommand("kt-create");
+			pi.sendUserMessage("/kt-create");
 			return;
 		}
 
@@ -454,7 +456,7 @@ export default function planAskExtension(pi: ExtensionAPI) {
 				const { dirname } = await import("node:path");
 				await mkdir(dirname(path), { recursive: true });
 				await writeFile(path, planText, "utf-8");
-				ctx.ui.notify(`Plan saved to ${path}`, "success");
+				ctx.ui.notify(`Plan saved to ${path}`, "info");
 			} catch (err: unknown) {
 				const message = err instanceof Error ? err.message : String(err);
 				ctx.ui.notify(`Failed to save plan: ${message}`, "error");

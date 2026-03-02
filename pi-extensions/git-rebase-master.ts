@@ -154,7 +154,7 @@ export default function gitRebaseMasterExtension(pi: ExtensionAPI) {
 			]);
 
 			if (rebaseCode === 0) {
-				ctx.ui.notify("Rebase completed successfully — no conflicts.", "success");
+				ctx.ui.notify("Rebase completed successfully — no conflicts.", "info");
 				return;
 			}
 

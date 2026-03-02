@@ -86,7 +86,8 @@ export default function (pi: ExtensionAPI) {
 		notify(title, body);
 	});
 
-	pi.events.on("waiting_for_input", (data: { question?: string }) => {
-		notify("π", data.question ?? "Waiting for input");
+	pi.events.on("waiting_for_input", (data: unknown) => {
+		const input = data as { question?: string } | undefined;
+		notify("π", input?.question ?? "Waiting for input");
 	});
 }

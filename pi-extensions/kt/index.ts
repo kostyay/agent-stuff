@@ -24,6 +24,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 	type Theme,
+	type ThemeColor,
 } from "@mariozechner/pi-coding-agent";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
@@ -165,8 +166,8 @@ async function withLock<T>(
 // ── Themed Rendering ───────────────────────────────────────────────────
 
 function renderTicketHeading(theme: Theme, t: TicketFrontMatter, currentSession?: string): string {
-	let iconColor: string;
-	let titleColor: string;
+	let iconColor: ThemeColor;
+	let titleColor: ThemeColor;
 	if (t.status === "closed") {
 		iconColor = "dim";
 		titleColor = "dim";
@@ -1140,7 +1141,7 @@ export default function ktExtension(pi: ExtensionAPI) {
 
 			if (nextPrompt) {
 				ctx.ui.setEditorText(nextPrompt);
-				rootTui?.requestRender();
+				(rootTui as TUI | null)?.requestRender();
 			}
 		},
 	});
@@ -1200,18 +1201,16 @@ export default function ktExtension(pi: ExtensionAPI) {
 			}
 
 			// Ask user how to proceed
-			const forkChoice = await ctx.ui.select(
-				"kt-run-all: Session strategy",
-				[
-					{ value: "fork-each", label: "Fork a new session for each ticket", description: "Isolated sessions, context injected between tickets" },
-					{ value: "same-session", label: "Work through all in this session", description: "Agent processes tickets sequentially in current session" },
-					{ value: "cancel", label: "Cancel" },
-				],
-			);
+			const forkOptions = [
+				"Fork a new session for each ticket",
+				"Work through all in this session",
+				"Cancel",
+			];
+			const forkChoice = await ctx.ui.select("kt-run-all: Session strategy", forkOptions);
 
-			if (!forkChoice || forkChoice === "cancel") return;
+			if (!forkChoice || forkChoice === "Cancel") return;
 
-			if (forkChoice === "same-session") {
+			if (forkChoice === "Work through all in this session") {
 				// Inject prompt to work through all tickets
 				const prompt =
 					`Work through these tickets in order, one at a time. For each ticket:\n` +

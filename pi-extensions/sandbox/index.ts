@@ -405,7 +405,7 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 				}
 				const config = loadConfig(ctx.cwd);
 				sandboxReady = activateSandbox(config, ctx).then((ok) => {
-					if (ok) ctx.ui.notify("Sandbox enabled", "success");
+					if (ok) ctx.ui.notify("Sandbox enabled", "info");
 					return ok;
 				});
 				await sandboxReady;

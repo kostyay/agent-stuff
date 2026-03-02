@@ -20,12 +20,31 @@ import { BorderedLoader } from "@mariozechner/pi-coding-agent";
 import {
 	Key,
 	matchesKey,
-	sliceByColumn,
 	type Component,
 	type TUI,
 	truncateToWidth,
 	visibleWidth,
 } from "@mariozechner/pi-tui";
+
+/**
+ * Extract a range of visible columns from a line. Re-implemented locally
+ * because pi-tui does not re-export sliceByColumn from its public index.
+ */
+function sliceByColumn(line: string, startCol: number, length: number, _strict?: boolean): string {
+	// Strip ANSI, measure, and use truncateToWidth as a simpler fallback.
+	// For right-aligned slicing (startCol > 0): skip `startCol` visible chars, then take `length`.
+	const stripped = line.replace(/\x1b\[[^m]*m/g, "");
+	const chars = [...stripped];
+	let col = 0;
+	let startIdx = 0;
+	for (let i = 0; i < chars.length; i++) {
+		if (col >= startCol) { startIdx = i; break; }
+		col++;
+		startIdx = i + 1;
+	}
+	const sliced = chars.slice(startIdx, startIdx + length).join("");
+	return truncateToWidth(sliced, length);
+}
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
