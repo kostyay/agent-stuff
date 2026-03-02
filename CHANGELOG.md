@@ -20,7 +20,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## refactor/auto-version-release-workflow
+
+
+## feat/force-push-on-rejection
+
+Enhanced the push workflow to gracefully handle rejected pushes by prompting users to force-push with `--force-with-lease` (#12). When a normal push fails due to non-fast-forward errors (common after rebasing), users are now prompted to safely force-push rather than failing silently. The implementation includes rejection detection via stderr pattern matching and proper error handling for both standard and force-push attempts, with user-facing notifications at each step.
+
+## [1.0.0](https://github.com/kostyay/agent-stuff/pull/11) - 2026-03-02
 
 Implemented automatic semantic versioning and tag-based releases in the CI workflow (#11), eliminating the need for manual version bumps in package.json. The release pipeline now automatically detects the latest git tag, counts commits since that tag, and bumps the patch version accordingly—skipping releases when no new commits exist. Additionally refactored the `/plan` command into a unified `plan-ask.ts` extension that introduces a three-way mode rotation (Agent → Ask → Plan) accessible via Shift+Tab, with read-only tool restrictions and safe command filtering for ask and plan modes to enable safe exploration of the codebase.
 
