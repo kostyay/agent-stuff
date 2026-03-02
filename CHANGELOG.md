@@ -2,6 +2,7 @@
 
 All notable changes to agent-stuff are documented here.
 
+
 ## git-rebase-master
 
 Added `/git-rebase-master` command that fetches the latest `main` or `master`
@@ -17,31 +18,6 @@ new `autoBranch` option on `performCommit`.
 mode, streamlining the publish workflow for most use cases.
 
 ## docs/update-readme-and-sandbox
-
-Updated README to remove the npm install path (no published package) and added
-missing extensions (`commit.ts`, `simplify.ts`) to the documentation table,
-sorted alphabetically. The sandbox extension now supports runtime toggling via
-`/sandbox on` and `/sandbox off` commands with argument completions, replacing
-the restart-required workflow. Repository metadata was updated with accurate
-description, topic tags, and free-tier hardening (squash-only merges,
-auto-delete branches, Dependabot alerts enabled).
-
-Replaced the npm-publish workflow with an auto-release workflow that creates a
-GitHub tag and release on every merge to main when `package.json` contains a new
-version. Release notes are extracted from `CHANGELOG.md` via a Python script
-that checks `## Unreleased`, then version-matched headings, falling back to the
-git commit log.
-
-Overhauled the commit extension to eliminate agent-loop token burn. Changelog
-generation now gathers context deterministically via git/gh commands and calls
-haiku once for the summary text, writing the file programmatically. Removed
-changelog from the `/commit-push` and `/commit-push-pr` chains. Added
-`/merge-pr` which runs the full pre-merge workflow: changelog update, commit,
-push, incremental PR description refresh (diffs only new commits against the
-existing description), confirmation prompt, and squash-merge with branch
-cleanup. (#3)
-
-The sandbox extension now supports runtime toggling via `/sandbox on` and `/sandbox off` commands with argument completions and a visual status indicator, eliminating the need to restart. The commit extension was overhauled to reduce token consumption by gathering changelog context deterministically through git/gh commands and calling the model once for summary generation, with the new `/merge-pr` command streamlining the full pre-merge workflow including changelog updates, incremental PR description refresh, and squash-merge with cleanup. An auto-release workflow now replaces the npm-publish pipeline, automatically creating GitHub tags and releases on main merges when `package.json` version changes, with release notes extracted from `CHANGELOG.md` via a new Python script that falls back to the git commit log. (#3)
 
 The commit extension was overhauled to dramatically reduce token consumption by gathering changelog context deterministically through git/gh commands and calling the model once for summary generation, with the new `/merge-pr` command streamlining the full pre-merge workflow including changelog updates, incremental PR description refresh, and squash-merge with cleanup. The sandbox extension now supports runtime toggling via `/sandbox on` and `/sandbox off` commands with a visual status indicator, eliminating the need to restart. An auto-release workflow now replaces the npm-publish pipeline, automatically creating GitHub tags and releases on main merges when `package.json` version changes, with release notes extracted from `CHANGELOG.md` via a new Python script that falls back to the git commit log. (#3)
 
