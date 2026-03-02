@@ -8,7 +8,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## refactor/plan-mode-restructure
+
+
+## chore/eslint-typescript-config
+
+Added ESLint configuration with TypeScript support (#6) to enforce syntax and error detection across the codebase. The setup leverages typescript-eslint with recommended rules while disabling noisy stylistic checks to align with the project's existing conventions. ESLint dependencies (eslint ^10.0.2 and typescript-eslint ^8.56.1) have been added to the dev stack. TypeScript files in pi-extensions were linted and adjusted to comply with the new configuration, focusing on catching genuine bugs rather than enforcing code style preferences.
+
+## [1.0.0](https://github.com/kostyay/agent-stuff/pull/5) - 2026-03-02
 
 Plan mode now supports two entry points: **Shift+Tab** for instant toggling with the planning system prompt injected via `before_agent_start` (#5), and the existing **/plan** command for one-shot planning flows. The restructuring separates the reusable `PLAN_SYSTEM_PROMPT` constant from command-specific logic, enabling seamless mode switching without prompting for input on toggle. Read-only tool restrictions and bash command filtering remain intact, maintaining the safety guarantees of planning mode while improving UX for users who frequently switch between exploratory and implementation phases.
 
