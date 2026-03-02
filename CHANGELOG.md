@@ -16,7 +16,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/profile-sync-script
+
+
+## chore/add-agent-profiles-sync
+
+Added agent profiles and synchronization tooling (#10) to standardize development workflows across agent instances. The `profiles/AGENTS.agent-personal.md` file establishes global development standards including task routing via extensions, coding philosophy (no speculative features, bias toward action), and hard limits on code complexity and function signatures. A new `sync-agents.sh` script enables automatic symlink-based profile distribution to agent directories, allowing centralized management of agent configurations. Additionally updated Go and Python code-simplifier skills with explicit tooling requirements (newest stable Go versions, Python 3.13 with `uv`/`ruff`/`pytest`) and verification workflows to ensure consistent code quality standards.
+
+## [1.0.0](https://github.com/kostyay/agent-stuff/pull/9) - 2026-03-02
 
 Added a new profile synchronization utility script for Pi configuration management (#9). The `sync-profiles.ts` script enables users to merge configuration from a source profile to a destination profile, supporting deep-merge semantics for `settings.json` and `keybindings.json` (with source values winning on conflicts), while wholesale-copying extension JSON files. The tool operates in dry-run mode by default and provides detailed diff output showing additions, changes, removals, and unchanged entries before writing changes with the `--apply` flag, making it safe for managing multiple Pi profiles without accidental overwrites.
 
