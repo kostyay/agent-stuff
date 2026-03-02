@@ -12,7 +12,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/timed-confirm-dialog
+
+
+## feat/profile-badge-display
+
+Added a color-coded profile badge to the status bar that displays the current profile name and authentication method (#8). The badge uses a deterministically hashed background color derived from the profile name for easy visual distinction across multiple profiles, appearing only when `PI_CODING_AGENT_DIR` points to a non-default directory. Supporting utilities including `hashString`, `hslToRgb`, and `buildProfileBadge` were extracted as reusable functions, along with comprehensive unit tests covering color conversion, token formatting, and profile detection logic. The extension now provides richer visual feedback about the active authentication context (OAuth vs. API key) at a glance.
+
+## [1.0.0](https://github.com/kostyay/agent-stuff/pull/7) - 2026-03-02
 
 Introduces a reusable timed confirmation dialog component (#7) that displays a bordered prompt with an auto-resolving countdown timer, allowing users to confirm immediately via Enter or cancel with Escape. The dialog has been integrated into the PR merge workflow, replacing the standard confirmation prompt to streamline the merge process with a 5-second auto-confirm default. Includes comprehensive test coverage (336 lines) validating timer behavior, keyboard input handling, and configuration options, ensuring robust interaction across various scenarios.
 
