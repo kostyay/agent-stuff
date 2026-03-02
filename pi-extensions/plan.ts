@@ -1,13 +1,20 @@
 /**
- * /plan - One-shot planning mode
+ * Plan Mode Extension
  *
- * Usage: /plan <prompt>
+ * Provides two ways to enter planning mode:
  *
- * Enters a read-only planning flow:
- * 1. Restricts tools to read-only (read, bash safe-only, grep, find, ls, ask_question)
- * 2. Agent explores codebase, asks clarifying questions via ask_question
- * 3. Agent presents plan in sections, validates each with ask_question
- * 4. On completion, asks user where to save and whether to execute
+ * 1. **Shift+Tab** — Toggles plan mode on/off instantly. Tools are restricted
+ *    to read-only and the planning system prompt is injected via
+ *    `before_agent_start`. The user types their message normally in the editor.
+ *
+ * 2. **/plan <prompt>** — One-shot planning: enters plan mode and immediately
+ *    sends the prompt to the agent with planning instructions.
+ *
+ * In plan mode:
+ * - Tools are restricted to read-only (read, bash safe-only, grep, find, ls, ask_question)
+ * - Bash commands are filtered to a safe allowlist
+ * - The system prompt is augmented with planning instructions
+ * - On agent completion, the user is offered save/execute/refine options
  *
  * Depends on kbrainstorm extension for the ask_question tool.
  */
@@ -128,13 +135,11 @@ function getTextContent(message: AssistantMessage): string {
 
 // ── Planning prompt ──────────────────────────────────────────────────────
 
-function buildPlanPrompt(userPrompt: string): string {
-	return `[PLAN MODE ACTIVE - READ ONLY]
+/** System prompt appended via `before_agent_start` when plan mode is active. */
+const PLAN_SYSTEM_PROMPT = `[PLAN MODE ACTIVE - READ ONLY]
 
 You are in planning mode. You MUST NOT make any file changes.
 Your tools are restricted to read-only operations.
-
-Your task: ${userPrompt}
 
 Follow this process:
 1. Explore the codebase to understand the current state relevant to the task (read files, search, grep, etc.)
@@ -154,6 +159,10 @@ Important:
 - Use ask_question for ALL questions to the user (never ask in plain text)
 - Be thorough in exploration before proposing the plan
 - Keep each plan section focused and concise`;
+
+/** Builds a user message for the /plan command's one-shot flow. */
+function buildPlanPrompt(userPrompt: string): string {
+	return `${PLAN_SYSTEM_PROMPT}\n\nYour task: ${userPrompt}`;
 }
 
 // ── Extension ────────────────────────────────────────────────────────────
@@ -230,27 +239,29 @@ export default function planExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	// ── Ctrl+Tab shortcut to toggle modes ────────────────────────────────
+	// ── Shift+Tab shortcut to toggle modes ───────────────────────────────
 
 	pi.registerShortcut("shift+tab", {
 		description: "Toggle between agent and plan mode",
 		handler: async (ctx) => {
 			if (planActive) {
-				// Switch back to agent mode immediately
 				exitPlanMode(ctx);
 				ctx.ui.notify("Switched to agent mode.", "info");
-				return;
+			} else {
+				enterPlanMode(ctx);
+				ctx.ui.notify("Entered plan mode (read-only). Type your message below.", "info");
 			}
-
-			// Entering plan mode — ask for a prompt
-			const prompt = await ctx.ui.input("What do you want to plan?", "");
-			if (!prompt?.trim()) return;
-
-			planPrompt = prompt.trim();
-			enterPlanMode(ctx);
-			ctx.ui.notify("Entered plan mode (read-only). Planning...", "info");
-			pi.sendUserMessage(buildPlanPrompt(planPrompt));
 		},
+	});
+
+	// ── Inject planning system prompt ────────────────────────────────────
+
+	pi.on("before_agent_start", async (event) => {
+		if (!planActive) return;
+
+		return {
+			systemPrompt: event.systemPrompt + "\n\n" + PLAN_SYSTEM_PROMPT,
+		};
 	});
 
 	// ── Block unsafe bash commands ───────────────────────────────────────
