@@ -1,8 +1,12 @@
 /**
  * Status Bar — Rich two-line custom footer inspired by claude-status
  *
- * Line 1: status icon + model + context meter (left), tokens in/out/cache + cost (right)
+ * Line 1: [profile badge] + status icon + model + context meter (left), tokens in/out/cache + cost (right)
  * Line 2: cwd (branch ±dirty +add,-del ✨new📝mod🗑del⚡unstaged) on left, tool tally + turn on right
+ *
+ * When PI_CODING_AGENT_DIR is set to a non-default path, a colored profile badge
+ * is shown at the start of line 1. The badge background color is deterministically
+ * derived from a hash of the profile name for easy visual identification.
  *
  * Context meter is color-coded: green <50%, yellow 50-80%, red >80%
  *
@@ -14,6 +18,81 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { basename } from "node:path";
 
+/** Hash a string into a 32-bit unsigned integer (djb2). */
+export function hashString(str: string): number {
+	let hash = 5381;
+	for (let i = 0; i < str.length; i++) {
+		hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;
+	}
+	return hash;
+}
+
+/** Convert HSL (h: 0-360, s/l: 0-1) to RGB (0-255 each). */
+export function hslToRgb(h: number, s: number, l: number): { r: number; g: number; b: number } {
+	const c = (1 - Math.abs(2 * l - 1)) * s;
+	const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+	const m = l - c / 2;
+	let r = 0, g = 0, b = 0;
+	if (h < 60)       { r = c; g = x; }
+	else if (h < 120) { r = x; g = c; }
+	else if (h < 180) { g = c; b = x; }
+	else if (h < 240) { g = x; b = c; }
+	else if (h < 300) { r = x; b = c; }
+	else              { r = c; b = x; }
+	return {
+		r: Math.round((r + m) * 255),
+		g: Math.round((g + m) * 255),
+		b: Math.round((b + m) * 255),
+	};
+}
+
+/**
+ * Resolve the profile name from PI_CODING_AGENT_DIR.
+ * Returns undefined when the env var is unset or points to the default "agent" dir.
+ */
+export function getProfileName(): string | undefined {
+	const configDir = process.env.PI_CODING_AGENT_DIR;
+	if (!configDir) return undefined;
+	const name = basename(configDir);
+	return name === "agent" ? undefined : name;
+}
+
+/** Return "oauth", "api-key", or "no-auth" for the current model. */
+export function getAuthLabel(ctx: ExtensionContext): string {
+	if (!ctx.model) return "no-auth";
+	return ctx.modelRegistry.isUsingOAuth(ctx.model) ? "oauth" : "api-key";
+}
+
+/**
+ * Build an ANSI-styled profile badge (e.g. " work [oauth] ") with a
+ * hashed background color and bold white foreground.
+ * Returns empty text when there is no custom profile.
+ */
+export function buildProfileBadge(ctx: ExtensionContext): { text: string; width: number } {
+	const name = getProfileName();
+	if (!name) return { text: "", width: 0 };
+
+	const auth = getAuthLabel(ctx);
+	const hue = hashString(name) % 360;
+	const { r, g, b } = hslToRgb(hue, 0.65, 0.38);
+	const label = ` ${name} [${auth}] `;
+
+	return {
+		text: `\x1b[48;2;${r};${g};${b}m\x1b[1;97m${label}\x1b[0m `,
+		width: label.length + 1,
+	};
+}
+
+/** Format a token count as a compact string (e.g. 1.2k, 3.5M). */
+export function formatTokenCount(n: number): string {
+	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+	if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+	return `${n}`;
+}
+
+/** Tools that mutate files and should trigger a git diff refresh. */
+export const MUTATING_TOOLS = new Set(["write", "edit", "bash"]);
+
 interface GitDiffStats {
 	additions: number;
 	deletions: number;
@@ -23,7 +102,8 @@ interface GitDiffStats {
 	unstagedFiles: number;
 }
 
-export default function (pi: ExtensionAPI) {
+/** Status bar extension — registers a rich two-line custom footer. */
+export default function statusBarExtension(pi: ExtensionAPI) {
 	const counts: Record<string, number> = {};
 	let turnCount = 0;
 	let agentActive = false;
@@ -90,12 +170,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("tool_execution_end", async (event, ctx) => {
 		counts[event.toolName] = (counts[event.toolName] || 0) + 1;
-
-		// Refresh git diff stats after file-mutating tools
-		const mutating = ["write", "edit", "bash"];
-		if (mutating.includes(event.toolName)) {
-			scheduleDiffRefresh(ctx);
-		}
+		if (MUTATING_TOOLS.has(event.toolName)) scheduleDiffRefresh(ctx);
 	});
 
 	pi.on("turn_start", async () => {
@@ -112,18 +187,13 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		// Reconstruct state from session history
 		for (const entry of ctx.sessionManager.getBranch()) {
-			if (entry.type === "message" && entry.message.role === "toolResult") {
-				const name = entry.message.toolName;
-				if (name) counts[name] = (counts[name] || 0) + 1;
+			if (entry.type !== "message") continue;
+			if (entry.message.role === "toolResult" && entry.message.toolName) {
+				counts[entry.message.toolName] = (counts[entry.message.toolName] || 0) + 1;
 			}
-			if (entry.type === "message" && entry.message.role === "assistant") {
-				turnCount++;
-			}
+			if (entry.message.role === "assistant") turnCount++;
 		}
-
-		// Initial diff stats fetch
 		refreshDiffStats(ctx);
 
 		ctx.ui.setFooter((tui, theme, footerData) => {
@@ -133,44 +203,35 @@ export default function (pi: ExtensionAPI) {
 				dispose: unsub,
 				invalidate() {},
 				render(width: number): string[] {
-					// --- Accumulate tokens and cost ---
 					let tokIn = 0;
 					let tokOut = 0;
 					let tokCache = 0;
 					let cost = 0;
 					for (const entry of ctx.sessionManager.getBranch()) {
-						if (entry.type === "message" && entry.message.role === "assistant") {
-							const m = entry.message as AssistantMessage;
-							tokIn += m.usage.input;
-							tokOut += m.usage.output;
-							tokCache += (m.usage as any).cacheRead ?? 0;
-							tokCache += (m.usage as any).cacheCreation ?? 0;
-							cost += m.usage.cost.total;
-						}
+						if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+						const m = entry.message as AssistantMessage;
+						tokIn += m.usage.input;
+						tokOut += m.usage.output;
+						tokCache += (m.usage as any).cacheRead ?? 0;
+						tokCache += (m.usage as any).cacheCreation ?? 0;
+						cost += m.usage.cost.total;
 					}
 
-					const fmt = (n: number) =>
-						n >= 1_000_000
-							? `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`
-							: n >= 1_000
-								? `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}k`
-								: `${n}`;
-
-					// --- Line 1: model + context meter (left), tokens + cost (right) ---
-					const usage = ctx.getContextUsage();
-					const pct = usage ? usage.percent : 0;
+					// --- Line 1: badge + model + context meter (left), tokens + cost (right) ---
+					const pct = ctx.getContextUsage()?.percent ?? 0;
 					const filled = Math.round(pct / 10) || 1;
 					const model = ctx.model?.id || "no-model";
+
+					const badge = buildProfileBadge(ctx);
 
 					const statusIcon = agentActive
 						? theme.fg("accent", "● ")
 						: theme.fg("success", "✓ ");
-
-					// Color-coded context: green <50%, yellow 50-80%, red >80%
 					const ctxColor: "success" | "warning" | "error" =
 						pct >= 80 ? "error" : pct >= 50 ? "warning" : "success";
 
 					const l1Left =
+						badge.text +
 						statusIcon +
 						theme.fg("dim", `${model} `) +
 						theme.fg("warning", "[") +
@@ -181,20 +242,17 @@ export default function (pi: ExtensionAPI) {
 						theme.fg(ctxColor, `${Math.round(pct)}%`);
 
 					let l1Right =
-						theme.fg("success", `↑${fmt(tokIn)}`) +
+						theme.fg("success", `↑${formatTokenCount(tokIn)}`) +
 						theme.fg("dim", " ") +
-						theme.fg("accent", `↓${fmt(tokOut)}`);
-
+						theme.fg("accent", `↓${formatTokenCount(tokOut)}`);
 					if (tokCache > 0) {
-						l1Right += theme.fg("dim", " ") + theme.fg("muted", `⚡${fmt(tokCache)}`);
+						l1Right += theme.fg("dim", " ") + theme.fg("muted", `⚡${formatTokenCount(tokCache)}`);
 					}
-
 					l1Right +=
 						theme.fg("dim", " ") +
 						theme.fg("warning", `$${cost.toFixed(4)}`) +
 						theme.fg("dim", " ");
 
-					// Extension statuses (e.g. sandbox indicator)
 					const statuses = footerData.getExtensionStatuses();
 					let l1Mid = "";
 					if (statuses.size > 0) {
@@ -215,51 +273,40 @@ export default function (pi: ExtensionAPI) {
 					if (branch) {
 						l2Left += theme.fg("dim", " 🌿 ") + theme.fg("success", branch);
 
-						// Git status (dirty file count)
 						if (diffStats) {
 							const totalDirty =
 								diffStats.newFiles + diffStats.modifiedFiles +
 								diffStats.deletedFiles + diffStats.unstagedFiles;
-
 							if (totalDirty > 0) {
 								l2Left += theme.fg("warning", ` ±${totalDirty}`);
 							}
 
-							// Diff stats: +additions,-deletions
 							if (diffStats.additions > 0 || diffStats.deletions > 0) {
-								l2Left += theme.fg("dim", " ");
-								if (diffStats.additions > 0) {
-									l2Left += theme.fg("success", `+${diffStats.additions}`);
-								}
-								if (diffStats.deletions > 0) {
-									if (diffStats.additions > 0) l2Left += theme.fg("dim", ",");
-									l2Left += theme.fg("error", `-${diffStats.deletions}`);
-								}
+								const parts: string[] = [];
+								if (diffStats.additions > 0) parts.push(theme.fg("success", `+${diffStats.additions}`));
+								if (diffStats.deletions > 0) parts.push(theme.fg("error", `-${diffStats.deletions}`));
+								l2Left += theme.fg("dim", " ") + parts.join(theme.fg("dim", ","));
 							}
 
-							// File type indicators
-							let fileIndicators = "";
-							if (diffStats.newFiles > 0)
-								fileIndicators += `✨${diffStats.newFiles}`;
-							if (diffStats.modifiedFiles > 0)
-								fileIndicators += `📝${diffStats.modifiedFiles}`;
-							if (diffStats.deletedFiles > 0)
-								fileIndicators += `🗑${diffStats.deletedFiles}`;
-							if (diffStats.unstagedFiles > 0)
-								fileIndicators += `⚡${diffStats.unstagedFiles}`;
-
+							const indicators: [number, string][] = [
+								[diffStats.newFiles, "✨"],
+								[diffStats.modifiedFiles, "📝"],
+								[diffStats.deletedFiles, "🗑"],
+								[diffStats.unstagedFiles, "⚡"],
+							];
+							const fileIndicators = indicators
+								.filter(([count]) => count > 0)
+								.map(([count, icon]) => `${icon}${count}`)
+								.join("");
 							if (fileIndicators) {
 								l2Left += theme.fg("dim", " ") + theme.fg("muted", fileIndicators);
 							}
 						}
 					}
 
-					// Tool tally + turn count on right
 					const entries = Object.entries(counts);
 					let l2Right = "";
-
 					if (entries.length > 0) {
-						// Show top tools, collapse rest if too many
 						const sorted = entries.sort((a, b) => b[1] - a[1]);
 						const shown = sorted.slice(0, 5);
 						const rest = sorted.slice(5);
@@ -298,7 +345,6 @@ export default function (pi: ExtensionAPI) {
 		});
 	});
 
-	// Reset on new session
 	pi.on("session_switch", async (event, ctx) => {
 		if (event.reason === "new") {
 			for (const key of Object.keys(counts)) delete counts[key];
