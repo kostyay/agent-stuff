@@ -16,6 +16,16 @@ new `autoBranch` option on `performCommit`.
 `/commit-push-pr` now creates PRs in ready mode by default instead of draft
 mode, streamlining the publish workflow for most use cases.
 
+## docs/update-readme-and-sandbox
+
+Updated README to remove the npm install path (no published package) and added
+missing extensions (`commit.ts`, `simplify.ts`) to the documentation table,
+sorted alphabetically. The sandbox extension now supports runtime toggling via
+`/sandbox on` and `/sandbox off` commands with argument completions, replacing
+the restart-required workflow. Repository metadata was updated with accurate
+description, topic tags, and free-tier hardening (squash-only merges,
+auto-delete branches, Dependabot alerts enabled). (#3)
+
 ## Unreleased
 
 * Added the `/plan` command for read-only planning mode with interactive brainstorming via the `ask_question` tool. Supports Shift+Tab mode toggle and an always-visible mode status indicator.
