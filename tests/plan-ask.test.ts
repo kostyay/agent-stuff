@@ -15,7 +15,10 @@ import planAskExtension, { MODE_DISPLAY } from "../pi-extensions/plan-ask.ts";
 
 // ---------------------------------------------------------------------------
 // Valid ThemeColor values from @mariozechner/pi-coding-agent
-// Keep in sync with the ThemeColor type definition.
+// Source: node_modules/@mariozechner/pi-coding-agent/dist/core/extensions/types.d.ts
+// (ThemeColor union type). Update this set when ThemeColor changes upstream.
+// The createMockCtx() helper below also validates colors at call-site via
+// theme.fg() which throws on unknown colors — providing a second safety net.
 // ---------------------------------------------------------------------------
 
 const VALID_THEME_COLORS = new Set([

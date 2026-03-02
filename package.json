@@ -9,8 +9,8 @@
   "readme": "README.md",
   "type": "module",
   "scripts": {
-    "lint": "eslint --fix pi-extensions/ tests/",
-    "test": "npm run lint && npx tsc --noEmit && node --experimental-strip-types --test tests/*.test.ts"
+    "lint": "eslint --fix pi-extensions/ tests/ && npx tsc --noEmit",
+    "test": "npm run lint && node --experimental-strip-types --test tests/*.test.ts"
   },
   "keywords": [
     "pi-package",

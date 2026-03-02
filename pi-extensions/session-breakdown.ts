@@ -29,10 +29,13 @@ import {
 /**
  * Extract a range of visible columns from a line. Re-implemented locally
  * because pi-tui does not re-export sliceByColumn from its public index.
+ *
+ * **Limitation**: ANSI escape codes are stripped before slicing, so the
+ * returned string loses styling. This is acceptable here because the
+ * function is only used in `fitRight` for right-aligning legend text
+ * that is already styled at a higher level.
  */
-function sliceByColumn(line: string, startCol: number, length: number, _strict?: boolean): string {
-	// Strip ANSI, measure, and use truncateToWidth as a simpler fallback.
-	// For right-aligned slicing (startCol > 0): skip `startCol` visible chars, then take `length`.
+function sliceByColumn(line: string, startCol: number, length: number): string {
 	const stripped = line.replace(/\x1b\[[^m]*m/g, "");
 	const chars = [...stripped];
 	let col = 0;
@@ -756,7 +759,7 @@ function fitRight(text: string, width: number): string {
 	let w = visibleWidth(text);
 	let t = text;
 	if (w > width) {
-		t = sliceByColumn(t, w - width, width, true);
+		t = sliceByColumn(t, w - width, width);
 		w = visibleWidth(t);
 	}
 	return " ".repeat(Math.max(0, width - w)) + t;
@@ -841,7 +844,7 @@ function renderLeftRight(left: string, right: string, width: number): string {
 	const rightW = visibleWidth(rightText);
 	if (rightW > remaining) {
 		// Keep the *rightmost* part visible.
-		rightText = sliceByColumn(rightText, rightW - remaining, remaining, true);
+		rightText = sliceByColumn(rightText, rightW - remaining, remaining);
 	}
 	const pad = Math.max(0, remaining - visibleWidth(rightText));
 	return left + " ".repeat(pad) + rightText;

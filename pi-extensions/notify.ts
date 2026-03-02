@@ -79,7 +79,7 @@ const formatNotification = (text: string | null): { title: string; body: string 
 	return { title: "π", body };
 };
 
-export default function (pi: ExtensionAPI) {
+export default function notifyExtension(pi: ExtensionAPI) {
 	pi.on("agent_end", async (event) => {
 		const lastText = extractLastAssistantText(event.messages ?? []);
 		const { title, body } = formatNotification(lastText);

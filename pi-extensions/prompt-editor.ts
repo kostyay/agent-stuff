@@ -1,3 +1,16 @@
+/**
+ * Prompt Editor Extension
+ *
+ * Replaces the built-in editor with a custom prompt editor that supports:
+ * - Named modes (default, fast, custom…) persisted in modes.json
+ * - Mode cycling via Ctrl+Space and selection via Ctrl+Shift+M / /mode
+ * - Thinking-level border color derived from mode or model config
+ * - Prompt history loaded from current and previous sessions
+ *
+ * Modes are stored globally (~/.pi/agent/modes.json) or per-project (.pi/modes.json).
+ * Multiple running pi sessions use file-locking to avoid clobbering each other.
+ */
+
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { CustomEditor, ModelSelectorComponent, SettingsManager } from "@mariozechner/pi-coding-agent";

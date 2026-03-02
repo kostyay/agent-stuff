@@ -765,7 +765,8 @@ async function handleCommand(
 		return;
 	}
 
-	respond(false, (command as { type: string }).type, undefined, `Unsupported command: ${(command as { type: string }).type}`);
+	const commandType = (command as { type: string }).type;
+	respond(false, commandType, undefined, `Unsupported command: ${commandType}`);
 }
 
 // ============================================================================
@@ -1408,7 +1409,8 @@ Messages automatically include sender session info for replies. When you want a 
 
 			// Error case
 			if (isError || details?.error) {
-				const errorMsg = (details?.error as string) || result.content[0]?.type === "text" ? (result.content[0] as { type: "text"; text: string }).text : "Unknown error";
+				const errorMsg = (details?.error as string)
+					?? (result.content[0]?.type === "text" ? (result.content[0] as { type: "text"; text: string }).text : "Unknown error");
 				return new Text(theme.fg("error", "✗ ") + theme.fg("error", errorMsg), 0, 0);
 			}
 
