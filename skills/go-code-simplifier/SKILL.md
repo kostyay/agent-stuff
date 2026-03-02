@@ -269,6 +269,19 @@ These are good Go idioms. Don't remove them, and suggest them when the code woul
 - `//go:generate` directives
 - Table-driven tests with subtests
 
+## Tooling
+
+Always use the **newest stable Go version**. Verify and run in this order:
+
+```bash
+go build ./...
+go test -race -count=1 ./...
+go vet ./...
+golangci-lint run   # if available
+```
+
+Write idiomatic, simple Go code. No framework unless the project already uses one.
+
 ## Output
 
 After applying changes, provide a short summary of what was simplified and why. Group changes by category (error handling, code structure, modern idioms, etc.). If tests/linters were run, include the result. If concurrency or performance issues were flagged, list them separately.

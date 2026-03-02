@@ -1,3 +1,4 @@
 node_modules
 .pi/todos
 *.profraw
+profiles/AGENTS.agent-work.md

@@ -130,6 +130,19 @@ These are good idioms — don't simplify them away, and suggest them when the co
 - `@lru_cache` for singleton-like config objects
 - Module-level constants with descriptive names over inline magic values
 
+## Tooling
+
+Target **Python 3.13**. Always use these tools — no alternatives without explicit approval:
+
+| purpose | tool |
+|---------|------|
+| deps & venv | `uv` (not pip/poetry) |
+| lint & format | `ruff check` · `ruff format` (not black/pylint/flake8) |
+| static types | `ty check` (not mypy/pyright) |
+| tests | `pytest -q` |
+
+Pin exact versions (`==` not `>=`). Run `pip-audit` before deploying.
+
 ## Output
 
 After applying changes, provide a short summary of what was simplified and why. If tests/linters were run, include the result.
