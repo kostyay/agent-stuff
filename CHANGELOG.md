@@ -24,7 +24,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## refactor/type-safety-and-ui-updates
+
+
+## feat/session-namer-extension
+
+Introduces the Session Namer extension (#14), which automatically generates concise, descriptive session names using Claude Haiku after the first agent response. The extension appends a mode emoji (📋 for plan, 🧠 for ask) based on the most recent non-agent interaction mode, and regenerates names on session compaction or via the new `/session-name-refresh` command. All AI calls execute asynchronously in the background to prevent blocking the agent loop, with silent error handling to ensure naming remains best-effort and non-disruptive.
+
+## [1.0.2](https://github.com/kostyay/agent-stuff/pull/13) - 2026-03-02
 
 Improved type safety across the extension system by adding explicit TypeScript type annotations and migrating from string-based to typed enum patterns for UI colors and notification levels (#13). Reorganized the linting pipeline to include TypeScript type checking via `tsc --noEmit`, catching previously undetected type errors in message content handling, component rendering, and event data access. Standardized UI component property names for consistency (e.g., `selectedBg` → `selectedPrefix`, `matchHighlight` → `selectedText`) and updated notification severity levels to use semantic theme colors (`success`/`info` → `info`/`accent`). Removed ~2,100 lines of unused code and added comprehensive test coverage for the plan-ask extension, improving maintainability and reducing technical debt.
 
