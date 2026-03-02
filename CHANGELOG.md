@@ -10,7 +10,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## chore/eslint-typescript-config
+
+
+## feat/timed-confirm-dialog
+
+Introduces a reusable timed confirmation dialog component (#7) that displays a bordered prompt with an auto-resolving countdown timer, allowing users to confirm immediately via Enter or cancel with Escape. The dialog has been integrated into the PR merge workflow, replacing the standard confirmation prompt to streamline the merge process with a 5-second auto-confirm default. Includes comprehensive test coverage (336 lines) validating timer behavior, keyboard input handling, and configuration options, ensuring robust interaction across various scenarios.
+
+## [1.0.0](https://github.com/kostyay/agent-stuff/pull/6) - 2026-03-02
 
 Added ESLint configuration with TypeScript support (#6) to enforce syntax and error detection across the codebase. The setup leverages typescript-eslint with recommended rules while disabling noisy stylistic checks to align with the project's existing conventions. ESLint dependencies (eslint ^10.0.2 and typescript-eslint ^8.56.1) have been added to the dev stack. TypeScript files in pi-extensions were linted and adjusted to comply with the new configuration, focusing on catching genuine bugs rather than enforcing code style preferences.
 
