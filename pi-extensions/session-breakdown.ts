@@ -107,7 +107,7 @@ interface BreakdownProgressState {
 function setBorderedLoaderMessage(loader: BorderedLoader, message: string) {
 	// BorderedLoader wraps a (Cancellable)Loader which supports setMessage(),
 	// but it doesn't expose it publicly. Access the inner loader for progress updates.
-	const inner = (loader as any)["loader"]; // eslint-disable-line @typescript-eslint/no-explicit-any
+	const inner = (loader as any)["loader"];
 	if (inner && typeof inner.setMessage === "function") {
 		inner.setMessage(message);
 	}
@@ -773,7 +773,7 @@ function renderModelTable(range: RangeAgg, mode: MeasurementMode, maxRows = 8): 
 
 	let perModel: Map<ModelKey, number>;
 	let total = 0;
-	let label = kind;
+	const label = kind;
 
 	if (kind === "tokens") {
 		perModel = range.modelTokens;

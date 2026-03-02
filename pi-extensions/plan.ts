@@ -3,11 +3,11 @@
  *
  * Provides two ways to enter planning mode:
  *
- * 1. **Shift+Tab** — Toggles plan mode on/off instantly. Tools are restricted
+ * 1. **Shift+Tab** - Toggles plan mode on/off instantly. Tools are restricted
  *    to read-only and the planning system prompt is injected via
  *    `before_agent_start`. The user types their message normally in the editor.
  *
- * 2. **/plan <prompt>** — One-shot planning: enters plan mode and immediately
+ * 2. `/plan <prompt>` - One-shot planning: enters plan mode and immediately
  *    sends the prompt to the agent with planning instructions.
  *
  * In plan mode:
@@ -23,7 +23,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, TextContent } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
-// ── Safe command filter (from plan-mode example) ─────────────────────────
+// -- Safe command filter (from plan-mode example) -------------------------
 
 const DESTRUCTIVE_PATTERNS = [
 	/\brm\b/i,
@@ -120,7 +120,7 @@ function isSafeCommand(command: string): boolean {
 	return !isDestructive && isSafe;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────
+// -- Helpers --------------------------------------------------------------
 
 function isAssistantMessage(m: AgentMessage): m is AssistantMessage {
 	return m.role === "assistant" && Array.isArray(m.content);
@@ -313,7 +313,7 @@ export default function planExtension(pi: ExtensionAPI) {
 		const planText = lastAssistant ? getTextContent(lastAssistant) : "";
 
 		// Ask what to do next
-		const action = await ctx.ui.select("Plan complete — what would you like to do?", [
+		const action = await ctx.ui.select("Plan complete - what would you like to do?", [
 			"Create tickets with /kt-create",
 			"Save plan to file",
 			"Save plan and execute it",
