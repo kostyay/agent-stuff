@@ -30,12 +30,14 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | [`context.ts`](pi-extensions/context.ts) | `/context` command — shows loaded extensions, skills, AGENTS.md/CLAUDE.md, and token usage |
 | [`control.ts`](pi-extensions/control.ts) | Session control via Unix domain sockets for inter-session communication |
 | [`files.ts`](pi-extensions/files.ts) | `/files` command — file browser merging git status with session-referenced files, plus diff/edit actions |
+| [`git-rebase-master.ts`](pi-extensions/git-rebase-master.ts) | `/git-rebase-master` command — fetches latest main/master and rebases current branch with automatic LLM conflict resolution |
 | [`kbrainstorm.ts`](pi-extensions/kbrainstorm.ts) | `ask_question` tool — interactive TUI for brainstorming with multiple-choice and freeform answers |
 | [`loop.ts`](pi-extensions/loop.ts) | `/loop` command — runs a follow-up prompt loop with a breakout condition for iterative coding |
 | [`notify.ts`](pi-extensions/notify.ts) | Desktop notifications (OSC 777) when the agent finishes and is waiting for input |
 | [`plan.ts`](pi-extensions/plan.ts) | `/plan` command — read-only planning mode that restricts tools and walks through a structured plan |
 | [`prompt-editor.ts`](pi-extensions/prompt-editor.ts) | Prompt mode selector (default/fast/precise) with per-mode model & thinking persistence |
 | [`review.ts`](pi-extensions/review.ts) | `/review` command — code review for uncommitted changes, PRs, or specific commits with optional auto-fix loop |
+| [`sandbox/`](pi-extensions/sandbox) | OS-level sandboxing for bash commands via `sandbox-exec` (macOS) / bubblewrap (Linux) with configurable filesystem and network restrictions |
 | [`session-breakdown.ts`](pi-extensions/session-breakdown.ts) | `/session-breakdown` command — analyzes session usage (cost by model) with a GitHub-style activity graph |
 | [`simplify.ts`](pi-extensions/simplify.ts) | `/simplify` command — detects the dominant language of uncommitted changes and runs the matching code-simplifier skill |
 | [`status-bar.ts`](pi-extensions/status-bar.ts) | Rich two-line footer with model, context meter, token counts, cost, git status, and tool tally |
@@ -73,6 +75,7 @@ Custom themes live in [`pi-themes/`](pi-themes).
 ## Project Structure
 
 ```
+├── .github/           # CI workflows and release scripts
 ├── pi-extensions/     # Pi extensions (auto-discovered)
 ├── skills/            # Agent skills (SKILL.md per skill)
 ├── pi-themes/         # Custom themes
