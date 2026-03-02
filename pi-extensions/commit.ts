@@ -7,17 +7,27 @@
  *   `/commit-push-pr`  — Update changelog, commit, push, and create/update a PR
  *                         with an AI-generated title and description.
  *
- * The changelog step sends the kchangelog skill as a user message, waits for
- * the agent to update CHANGELOG.md, then stages everything for the commit.
+ * The changelog step is fully scripted: git/gh context is gathered in code,
+ * a single Haiku call generates the summary, and the result is spliced into
+ * CHANGELOG.md programmatically.
  *
  * Uses `complete()` from `@mariozechner/pi-ai` for direct model invocation.
  */
 
 import { complete, getModel } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import {
+	type ChangelogContext,
+	buildChangelogPrompt,
+	getBranchSections,
+	parseChangelog,
+	promoteBranchToVersion,
+	spliceBranchSection,
+} from "../lib/changelog.ts";
 
 // ---------------------------------------------------------------------------
 // Model & constants
@@ -173,6 +183,21 @@ async function hasChanges(pi: ExtensionAPI): Promise<boolean> {
 	return code === 0 && stdout.trim().length > 0;
 }
 
+/** Check whether there are commits ahead of the remote tracking branch. */
+async function hasUnpushedCommits(pi: ExtensionAPI): Promise<boolean> {
+	const { stdout, code } = await pi.exec("git", [
+		"rev-list", "--count", "@{upstream}..HEAD",
+	]);
+	if (code === 0) {
+		return parseInt(stdout.trim(), 10) > 0;
+	}
+	// No upstream set — if we have any commits, they're unpushed
+	const { stdout: logOut, code: logCode } = await pi.exec("git", [
+		"rev-list", "--count", "HEAD",
+	]);
+	return logCode === 0 && parseInt(logOut.trim(), 10) > 0;
+}
+
 /** Gather staged + unstaged diff and untracked file names. */
 async function gatherDiffContent(pi: ExtensionAPI): Promise<string> {
 	const { stdout: diff } = await pi.exec("git", ["diff", "HEAD"]);
@@ -285,8 +310,18 @@ async function gatherPrDiff(
 // Shared commit flow
 // ---------------------------------------------------------------------------
 
+/** Options for the commit flow. */
+interface CommitOptions {
+	/** When true, auto-create a side branch without prompting the user. */
+	autoBranch?: boolean;
+}
+
 /**
- * The full stage → generate → branch → commit flow shared by both commands.
+ * The full stage → generate → branch → commit flow shared by all commands.
+ *
+ * When `options.autoBranch` is true and we're on the default branch, the
+ * AI-generated branch name is used without prompting. Otherwise the user
+ * is asked to confirm or provide a branch name.
  *
  * Returns the commit message on success, or `null` if the flow was
  * cancelled or failed (notifications are already shown).
@@ -294,6 +329,7 @@ async function gatherPrDiff(
 async function performCommit(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
+	options: CommitOptions = {},
 ): Promise<{ commitMessage: string; defaultBranch: string } | null> {
 	const currentBranch = await getCurrentBranch(pi);
 	const defaultBranch = await getDefaultBranch(pi);
@@ -329,7 +365,8 @@ async function performCommit(
 	if (onDefaultBranch) {
 		const suggestion = proposedBranch ?? "feature/auto-branch";
 
-		if (!ctx.hasUI) {
+		if (options.autoBranch || !ctx.hasUI) {
+			// Auto-create the branch without prompting
 			const { code, stderr } = await pi.exec("git", ["checkout", "-b", suggestion]);
 			if (code !== 0) {
 				ctx.ui.notify(`Failed to create branch: ${stderr}`, "error");
@@ -383,16 +420,15 @@ async function performCommit(
 /**
  * Validate git repo and haiku model availability.
  *
+ * Does NOT check for uncommitted changes — callers that need that
+ * should check `hasChanges()` separately.
+ *
  * Returns `false` (with notifications) if any check fails.
  */
 async function checkPrerequisites(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<boolean> {
 	const { code: gitCheck } = await pi.exec("git", ["rev-parse", "--git-dir"]);
 	if (gitCheck !== 0) {
 		ctx.ui.notify("Not a git repository", "error");
-		return false;
-	}
-	if (!(await hasChanges(pi))) {
-		ctx.ui.notify("No changes to commit", "info");
 		return false;
 	}
 	if (!HAIKU) {
@@ -411,40 +447,186 @@ async function checkPrerequisites(pi: ExtensionAPI, ctx: ExtensionCommandContext
 // Shared changelog flow
 // ---------------------------------------------------------------------------
 
-/** Read the kchangelog SKILL.md content. Returns null if missing. */
-function readChangelogSkill(): string | null {
+/** Path to the CHANGELOG.md file in the working directory. */
+function changelogPath(): string {
+	return resolve(process.cwd(), "CHANGELOG.md");
+}
+
+/** Read CHANGELOG.md from the working directory. Returns null if missing. */
+function readChangelog(): string | null {
 	try {
-		return readFileSync(
-			resolve(PACKAGE_ROOT, "skills", "kchangelog", "SKILL.md"),
-			"utf-8",
-		);
+		return readFileSync(changelogPath(), "utf-8");
 	} catch {
 		return null;
 	}
 }
 
 /**
- * Run the kchangelog skill by sending it as a user message and waiting
- * for the agent to finish updating CHANGELOG.md.
+ * Reconcile branch sections that have been merged and released.
  *
- * Skipped silently if the skill file is missing.
+ * For each branch-named section, checks if it was merged via PR and if a
+ * release tag was created after the merge. If so, promotes the section
+ * heading to a versioned heading.
+ */
+async function reconcileChangelog(
+	pi: ExtensionAPI,
+	content: string,
+): Promise<string> {
+	const { sections } = parseChangelog(content);
+	const branches = getBranchSections(sections);
+
+	let result = content;
+	for (const branch of branches) {
+		const { stdout: prJson, code: prCode } = await pi.exec("gh", [
+			"pr", "list", "--state", "merged", "--head", branch,
+			"--limit", "1", "--json", "number,mergedAt",
+		]);
+		if (prCode !== 0 || !prJson.trim() || prJson.trim() === "[]") continue;
+
+		let prData: Array<{ number: number; mergedAt: string }>;
+		try {
+			prData = JSON.parse(prJson.trim());
+		} catch {
+			continue;
+		}
+		if (prData.length === 0) continue;
+
+		const prNumber = prData[0].number;
+		const mergeDate = prData[0].mergedAt.split("T")[0];
+
+		// Find a release tag created on or after the merge date
+		const { stdout: tagsRaw } = await pi.exec("git", ["tag", "--sort=-creatordate"]);
+		const tags = tagsRaw.trim().split("\n").filter(Boolean);
+
+		let releaseTag: string | null = null;
+		for (const tag of tags) {
+			const { stdout: tagDateRaw } = await pi.exec("git", [
+				"log", "-1", "--format=%ai", tag,
+			]);
+			const tagDate = tagDateRaw.trim().split(" ")[0];
+			if (tagDate >= mergeDate) {
+				releaseTag = tag;
+				break;
+			}
+		}
+		if (!releaseTag) continue;
+
+		// Extract version from tag (strip leading 'v' if present)
+		const version = releaseTag.replace(/^v/, "");
+		const { stdout: repoUrl } = await pi.exec("git", [
+			"remote", "get-url", "origin",
+		]);
+		const repoPath = repoUrl.trim()
+			.replace(/\.git$/, "")
+			.replace(/^git@github\.com:/, "https://github.com/");
+		const prUrl = `${repoPath}/pull/${prNumber}`;
+
+		result = promoteBranchToVersion(result, branch, version, prUrl, mergeDate);
+	}
+
+	return result;
+}
+
+/**
+ * Gather the git context needed for changelog generation.
+ *
+ * Reads commit log, diff stat, and diff relative to the base branch.
+ */
+async function gatherChangelogContext(
+	pi: ExtensionAPI,
+	branch: string,
+	baseBranch: string,
+	existingBody: string | null,
+): Promise<ChangelogContext> {
+	const base = `origin/${baseBranch}`;
+
+	const [logResult, statResult, diffResult, prResult] = await Promise.all([
+		pi.exec("git", ["log", `${base}..HEAD`, "--oneline"]),
+		pi.exec("git", ["diff", `${base}..HEAD`, "--stat"]),
+		pi.exec("git", ["diff", `${base}..HEAD`]),
+		pi.exec("gh", [
+			"pr", "list", "--head", branch, "--state", "all",
+			"--limit", "1", "--json", "number",
+		]),
+	]);
+
+	let prNumber: number | null = null;
+	try {
+		const prs = JSON.parse(prResult.stdout.trim());
+		if (Array.isArray(prs) && prs.length > 0) {
+			prNumber = prs[0].number;
+		}
+	} catch {
+		// No PR — that's fine
+	}
+
+	return {
+		branch,
+		prNumber,
+		commitLog: logResult.stdout.trim(),
+		diffStat: statResult.stdout.trim(),
+		diff: diffResult.stdout.trim(),
+		existingSectionBody: existingBody,
+	};
+}
+
+/**
+ * Scripted changelog update: gather context, reconcile, generate summary
+ * via a single Haiku call, and splice the result into CHANGELOG.md.
+ *
+ * Falls back gracefully if CHANGELOG.md is missing, the model is
+ * unavailable, or there are no commits on the branch.
  */
 async function performChangelog(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 ): Promise<void> {
-	const skillContent = readChangelogSkill();
-	if (!skillContent) {
-		ctx.ui.notify("kchangelog skill not found, skipping changelog update", "warning");
+	const branch = await getCurrentBranch(pi);
+	if (!branch) {
+		ctx.ui.notify("Detached HEAD — skipping changelog update", "warning");
 		return;
 	}
 
+	const defaultBranch = await getDefaultBranch(pi);
+	if (branch === defaultBranch) {
+		ctx.ui.notify("On default branch — skipping changelog update", "info");
+		return;
+	}
+
+	let content = readChangelog();
+	if (!content) {
+		content = "# Changelog\n\nAll notable changes are documented here.\n";
+	}
+
 	ctx.ui.notify("Updating changelog…", "info");
-	pi.sendUserMessage(
-		"Update the CHANGELOG.md for the current branch following this skill:\n\n" +
-		skillContent,
-	);
-	await ctx.waitForIdle();
+
+	// Step 1: Reconcile any merged+released branch sections
+	content = await reconcileChangelog(pi, content);
+
+	// Step 2: Find existing section body for this branch (for append context)
+	const { sections } = parseChangelog(content);
+	const existing = sections.find((s) => s.heading === branch);
+	const existingBody = existing?.body || null;
+
+	// Step 3: Gather git context
+	const changelogCtx = await gatherChangelogContext(pi, branch, defaultBranch, existingBody);
+	if (!changelogCtx.commitLog) {
+		ctx.ui.notify("No commits on branch — skipping changelog", "info");
+		return;
+	}
+
+	// Step 4: Generate summary via single Haiku call
+	const prompt = buildChangelogPrompt(changelogCtx);
+	const summary = await callHaiku(prompt, ctx);
+	if (!summary?.trim()) {
+		ctx.ui.notify("Could not generate changelog summary", "warning");
+		return;
+	}
+
+	// Step 5: Splice into file
+	content = spliceBranchSection(content, branch, summary.trim());
+	writeFileSync(changelogPath(), content, "utf-8");
+	ctx.ui.notify("Changelog updated", "info");
 }
 
 // ---------------------------------------------------------------------------
@@ -490,9 +672,9 @@ async function performPr(
 ): Promise<void> {
 	let pr = await getExistingPr(pi);
 	if (!pr) {
-		ctx.ui.notify("Creating draft PR…", "info");
+		ctx.ui.notify("Creating PR…", "info");
 		const { code, stderr } = await pi.exec("gh", [
-			"pr", "create", "--draft", "--title", "WIP", "--body", "",
+			"pr", "create", "--title", "WIP", "--body", "",
 		]);
 		if (code !== 0) {
 			ctx.ui.notify(`Failed to create PR: ${stderr}`, "error");
@@ -532,25 +714,38 @@ export default function commitExtension(pi: ExtensionAPI) {
 			"Stage all changes and commit with an AI-generated Conventional Commits message. Creates a side branch if on the default branch.",
 		handler: async (_args, ctx) => {
 			if (!(await checkPrerequisites(pi, ctx))) return;
+			if (!(await hasChanges(pi))) {
+				ctx.ui.notify("No changes to commit", "info");
+				return;
+			}
 			await performCommit(pi, ctx);
 		},
 	});
 
 	pi.registerCommand("commit-push", {
 		description:
-			"Update changelog, stage, commit, and push. Generates commit message and branch name via AI.",
+			"Update changelog, stage, commit, and push. Commits if there are changes, pushes if there are unpushed commits. Auto-creates a side branch when on the default branch.",
 		handler: async (_args, ctx) => {
 			if (!(await checkPrerequisites(pi, ctx))) return;
-			await performChangelog(pi, ctx);
-			const result = await performCommit(pi, ctx);
-			if (!result) return;
-			await performPush(pi, ctx);
+
+			const changes = await hasChanges(pi);
+			if (changes) {
+				await performChangelog(pi, ctx);
+				const result = await performCommit(pi, ctx, { autoBranch: true });
+				if (!result) return;
+			}
+
+			if (changes || (await hasUnpushedCommits(pi))) {
+				await performPush(pi, ctx);
+			} else {
+				ctx.ui.notify("Nothing to commit or push", "info");
+			}
 		},
 	});
 
 	pi.registerCommand("commit-push-pr", {
 		description:
-			"Update changelog, stage, commit, push, and create/update a PR — all in one step. Generates commit message, branch name, PR title, and description via AI.",
+			"Update changelog, stage, commit, push, and create/update a PR — all in one step. Commits if there are changes, always pushes and updates the PR. Auto-creates a side branch when on the default branch.",
 		handler: async (_args, ctx) => {
 			if (!(await checkPrerequisites(pi, ctx))) return;
 
@@ -560,11 +755,20 @@ export default function commitExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			await performChangelog(pi, ctx);
-			const result = await performCommit(pi, ctx);
-			if (!result) return;
-			if (!(await performPush(pi, ctx))) return;
-			await performPr(pi, ctx, result.defaultBranch);
+			const changes = await hasChanges(pi);
+			if (changes) {
+				await performChangelog(pi, ctx);
+				const result = await performCommit(pi, ctx, { autoBranch: true });
+				if (!result) return;
+			}
+
+			const defaultBranch = await getDefaultBranch(pi);
+
+			if (changes || (await hasUnpushedCommits(pi))) {
+				if (!(await performPush(pi, ctx))) return;
+			}
+
+			await performPr(pi, ctx, defaultBranch);
 		},
 	});
 }
