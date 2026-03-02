@@ -9,7 +9,7 @@
   "readme": "README.md",
   "type": "module",
   "scripts": {
-    "lint": "eslint pi-extensions/ tests/",
+    "lint": "eslint --fix pi-extensions/ tests/",
     "test": "npm run lint && node --experimental-strip-types --test tests/*.test.ts"
   },
   "keywords": [

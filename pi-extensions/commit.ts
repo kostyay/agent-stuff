@@ -18,6 +18,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { timedConfirm } from "../lib/timed-confirm.ts";
 import {
 	type ChangelogContext,
 	buildChangelogPrompt,
@@ -861,6 +862,8 @@ async function performRebase(
 // ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
+// Extension entry point
+// ---------------------------------------------------------------------------
 
 /** Registers `/commit`, `/commit-push`, `/commit-push-pr`, and `/merge-pr` commands. */
 export default function commitExtension(pi: ExtensionAPI) {
@@ -1011,11 +1014,11 @@ export default function commitExtension(pi: ExtensionAPI) {
 				if (!(await performRebase(pi, ctx, defaultBranch))) return;
 			}
 
-			// Step 6: Confirm with user
-			const confirmed = await ctx.ui.confirm(
-				"Merge PR",
-				`Merge PR #${pr.number} into ${defaultBranch}?`,
-			);
+			// Step 6: Confirm with user (auto-confirms after 5s)
+			const confirmed = await timedConfirm(ctx, {
+				title: "Merge PR",
+				message: `Merge PR #${pr.number} into ${defaultBranch}?`,
+			});
 			if (!confirmed) {
 				ctx.ui.notify("Merge cancelled", "info");
 				return;
