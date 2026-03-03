@@ -1174,7 +1174,10 @@ export default function ticketExtension(pi: ExtensionAPI) {
 				"**Step 3: Create** — Once I approve the plan, create the tickets:\n" +
 				"1. `ticket create` the epic (type=epic) with description and acceptance criteria\n" +
 				"2. `ticket create` each task (type=task, parent=<epic-id>) with:\n" +
-				"   - description: what to implement\n" +
+				"   - description: **self-contained** — include enough project context, design decisions, " +
+				"and relevant details from the planning discussion so an agent can work on this ticket " +
+				"in an isolated session without access to the original conversation. " +
+				"Reference specific files, APIs, data structures, and conventions by name.\n" +
 				"   - acceptance: definition of done\n" +
 				"   - tests: specific test criteria that must pass before closing\n" +
 				"   - priority and deps as planned\n" +
