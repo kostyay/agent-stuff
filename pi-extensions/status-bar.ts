@@ -257,11 +257,20 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 					const statuses = footerData.getExtensionStatuses();
 					const sandboxStatus = statuses.get("sandbox");
 					const otherStatuses = [...statuses.entries()]
-						.filter(([key]) => key !== "sandbox")
+						.filter(([key]) => key !== "sandbox");
+
+					// Count ticket statuses separately; show as "N tickets"
+					const ticketCount = otherStatuses.filter(([, val]) => val === "ticket").length;
+					const nonTicketStatuses = otherStatuses
+						.filter(([, val]) => val !== "ticket")
 						.map(([, val]) => val);
+					if (ticketCount > 0) {
+						nonTicketStatuses.push(`${ticketCount} ticket${ticketCount > 1 ? "s" : ""}`);
+					}
+
 					let l1Mid = "";
-					if (otherStatuses.length > 0) {
-						l1Mid = " " + otherStatuses.join(theme.fg("dim", " · "));
+					if (nonTicketStatuses.length > 0) {
+						l1Mid = " " + nonTicketStatuses.join(theme.fg("dim", " · "));
 					}
 
 					const pad1 = " ".repeat(
