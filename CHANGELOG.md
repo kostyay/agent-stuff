@@ -32,7 +32,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## refactor/delegate-filesystem-enforcement
+
+
+## feat/network-isolation-config
+
+Added configurable network isolation controls to the sandbox extension (#18), enabling users to selectively weaken network restrictions for compatibility with Go-based CLI tools (gh, docker, etc.) that require macOS trust daemon access for TLS certificate verification. The new `enableWeakerNetworkIsolation` option is exposed in the `SandboxConfig` interface with a default value of `true` to support these commonly-used tools out-of-the-box, while still allowing stricter isolation configurations when needed. Configuration merging logic has been updated to properly handle the new isolation setting alongside existing sandbox policies.
+
+## [1.0.6](https://github.com/kostyay/agent-stuff/pull/17) - 2026-03-03
 
 This refactor consolidates filesystem enforcement into a dedicated event-driven architecture (#17). The plan-ask extension now delegates read-only command filtering to the sandbox extension via a shared `readonly` event on `pi.events`, eliminating ~100 lines of duplicated destructive-command pattern matching and reducing the plan-ask module's responsibility to tool restrictions and system prompts only. The sandbox extension listens for readonly state changes and dynamically reconfigures its filesystem allowlist, with an acknowledgment mechanism that warns users if the sandbox extension isn't loaded. Additionally, the status bar now displays sandbox state on a dedicated line 3, surfacing sandbox and readonly modes to users in real-time.
 
