@@ -28,7 +28,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## fix/session-namer-resume-restore
+
+
+## feat/terminal-progress-indicator
+
+Introduces a terminal progress indicator extension using OSC 9;4 escape sequences (#16), providing visual feedback in the terminal tab/titlebar with an indeterminate pulse while the agent is working. The indicator automatically clears when the agent finishes or waits for user input, with graceful cleanup on process exit to prevent stuck indicators. Supports multiple terminal emulators including Ghostty, iTerm2, WezTerm, Windows Terminal, and ConEmu, enhancing the user experience during long-running agent operations without requiring explicit status polling.
+
+## [1.0.4](https://github.com/kostyay/agent-stuff/pull/15) - 2026-03-03
 
 Session Namer now correctly restores session state when resuming a previous session (#15), preventing redundant Haiku calls that would overwrite existing names — the extension retrieves `baseName`, mode emoji, and `userTurnCount` from persisted session data on `session_switch`. Additionally, the extension strips XML-style tags (e.g., `<skill>`, `<available_skills>`) from conversation context before sending to Haiku, preventing polluted or malformed session names generated from skill expansions. These fixes ensure naming remains deterministic and clean across session lifecycle transitions.
 
