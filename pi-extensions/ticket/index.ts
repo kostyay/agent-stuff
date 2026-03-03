@@ -1241,20 +1241,15 @@ export default function ticketExtension(pi: ExtensionAPI) {
 				`Steps:\n1. \`ticket start ${firstTicket.id}\`\n2. Implement the work\n3. \`ticket close ${firstTicket.id}\`${record.tests ? " (with tests_confirmed=true after verifying tests)" : ""}\n\n` +
 				`After closing, there are ${ready.length - 1} more tickets to process.`;
 
-			// For fork-each, create a new session with the prompt
+			// Fork a new session, then send the prompt to trigger execution
 			const result = await ctx.newSession({
 				parentSession: ctx.sessionManager.getSessionFile(),
-				setup: async (sm) => {
-					sm.appendMessage({
-						role: "user",
-						content: [{ type: "text", text: prompt }],
-						timestamp: Date.now(),
-					});
-				},
 			});
 
 			if (result.cancelled) {
 				ctx.ui.notify("Session creation cancelled", "info");
+			} else {
+				pi.sendUserMessage(prompt);
 			}
 		},
 	});
