@@ -1,8 +1,8 @@
 /**
- * Unit tests for kt-core — the pure logic layer of the kt ticket tracker.
+ * Unit tests for ticket-core — the pure logic layer of the ticket tracker.
  *
  * Uses Node's built-in test runner (node:test + node:assert).
- * Run with: node --experimental-strip-types --test tests/kt-core.test.ts
+ * Run with: node --experimental-strip-types --test tests/ticket-core.test.ts
  */
 
 import { describe, it, before, after, afterEach, beforeEach } from "node:test";
@@ -46,13 +46,13 @@ import {
 	splitContent,
 	statusIcon,
 	writeTicketFile,
-} from "../pi-extensions/kt/kt-core.ts";
+} from "../pi-extensions/ticket/ticket-core.ts";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
 /** Create a temporary directory for test isolation. */
 async function makeTmpDir(): Promise<string> {
-	return fs.mkdtemp(path.join(os.tmpdir(), "kt-test-"));
+	return fs.mkdtemp(path.join(os.tmpdir(), "ticket-test-"));
 }
 
 /** Create a minimal TicketRecord for testing. */

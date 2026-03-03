@@ -1,5 +1,5 @@
 /**
- * kt — Git-Backed Ticket Tracker
+ * ticket — Git-Backed Ticket Tracker
  *
  * A full-featured ticket tracker for AI agents, inspired by kticket.
  * Stores tickets as markdown files with JSON frontmatter in `.tickets/`.
@@ -7,10 +7,10 @@
  * status workflow, test validation, and session assignment.
  *
  * Provides:
- * - `kt` tool with 9 actions (create, show, update, delete, start, close, reopen, list, add-note)
- * - `/kt` TUI browser with fuzzy search and action menu
- * - `/kt-create` prompt injection for epic + task breakdown
- * - `/kt-run-all` automated ticket processing loop with session forking
+ * - `ticket` tool with 9 actions (create, show, update, delete, start, close, reopen, list, add-note)
+ * - `/ticket` TUI browser with fuzzy search and action menu
+ * - `/ticket-create` prompt injection for epic + task breakdown
+ * - `/ticket-run-all` automated ticket processing loop with session forking
  * - Widget showing current in-progress ticket
  * - Status line with ticket counts
  * - Auto-nudge on agent_end when tickets remain in-progress
@@ -78,7 +78,7 @@ import {
 	serializeListForAgent,
 	statusIcon,
 	writeTicketFile,
-} from "./kt-core.ts";
+} from "./ticket-core.ts";
 
 /** Tool result details for renderResult. */
 type KtToolDetails =
@@ -113,7 +113,7 @@ const KtParams = Type.Object({
 	tests_confirmed: Type.Optional(Type.Boolean({ description: "Confirm tests pass when closing a ticket with test requirements" })),
 });
 
-// ── Locking (requires ExtensionContext, stays in kt.ts) ────────────────
+// ── Locking (requires ExtensionContext, stays in index.ts) ─────────────
 
 async function acquireLock(
 	dir: string,
@@ -563,7 +563,7 @@ class TicketDetailOverlayComponent {
 
 // ── Extension ──────────────────────────────────────────────────────────
 
-export default function ktExtension(pi: ExtensionAPI) {
+export default function ticketExtension(pi: ExtensionAPI) {
 	let nudgedThisCycle = false;
 
 	// ── Session events ─────────────────────────────────────────────────
@@ -591,7 +591,7 @@ export default function ktExtension(pi: ExtensionAPI) {
 		nudgedThisCycle = true;
 		const list = inProgress.map((t) => `  ${statusIcon(t.status)} ${t.id}: ${t.title}`).join("\n");
 		pi.sendMessage({
-			customType: "kt-nudge",
+			customType: "ticket-nudge",
 			content: `⚠️ You still have ${inProgress.length} in-progress ticket(s):\n\n${list}\n\nContinue working on them or close them when done.`,
 			display: true,
 		}, { triggerTurn: true });
@@ -612,14 +612,14 @@ export default function ktExtension(pi: ExtensionAPI) {
 
 		// Status
 		if (!tickets.length) {
-			ctx.ui.setStatus("🎫 kt: no tickets", "kt");
+			ctx.ui.setStatus("🎫 no tickets", "ticket");
 		} else {
-			ctx.ui.setStatus(`🎫 kt: ${tickets.length} tickets (${remaining} remaining)`, "kt");
+			ctx.ui.setStatus(`🎫 ${tickets.length} tickets (${remaining} remaining)`, "ticket");
 		}
 
 		// Widget: current in-progress ticket
 		if (inProgress.length) {
-			ctx.ui.setWidget("kt-current", (_tui, theme) => {
+			ctx.ui.setWidget("ticket-current", (_tui, theme) => {
 				const container = new Container();
 				container.addChild(new Text("", 0, 0));
 				container.addChild(new DynamicBorder((s: string) => theme.fg("dim", s)));
@@ -643,7 +643,7 @@ export default function ktExtension(pi: ExtensionAPI) {
 				};
 			}, { placement: "belowEditor" });
 		} else {
-			ctx.ui.setWidget("kt-current", undefined);
+			ctx.ui.setWidget("ticket-current", undefined);
 		}
 	}
 
@@ -673,11 +673,11 @@ export default function ktExtension(pi: ExtensionAPI) {
 		return resolved;
 	}
 
-	// ── kt tool ────────────────────────────────────────────────────────
+	// ── ticket tool ────────────────────────────────────────────────────
 
 	pi.registerTool({
-		name: "kt",
-		label: "kt",
+		name: "ticket",
+		label: "ticket",
 		description:
 			"Git-backed ticket tracker. Actions: create, show, update, delete, start, close, reopen, list, add-note. " +
 			"Tickets stored in .tickets/ as markdown files. IDs use project prefix (e.g. as-a1b2). Partial ID matching supported. " +
@@ -824,7 +824,7 @@ export default function ktExtension(pi: ExtensionAPI) {
 						// Test validation: block with criteria if tests exist and aren't confirmed
 						if (ticket.tests.trim() && !ticket.tests_passed && !params.tests_confirmed) {
 							return {
-								error: `Cannot close ${resolved}: this ticket has test requirements that must pass first.\n\n## Tests\n${ticket.tests.trim()}\n\nVerify these tests pass, then call \`kt close\` again with tests_confirmed=true.`,
+								error: `Cannot close ${resolved}: this ticket has test requirements that must pass first.\n\n## Tests\n${ticket.tests.trim()}\n\nVerify these tests pass, then call \`ticket close\` again with tests_confirmed=true.`,
 							} as const;
 						}
 
@@ -906,7 +906,7 @@ export default function ktExtension(pi: ExtensionAPI) {
 			const action = typeof args.action === "string" ? args.action : "";
 			const id = typeof args.id === "string" ? args.id : "";
 			const title = typeof args.title === "string" ? args.title : "";
-			let text = theme.fg("toolTitle", theme.bold("kt ")) + theme.fg("muted", action);
+			let text = theme.fg("toolTitle", theme.bold("ticket ")) + theme.fg("muted", action);
 			if (id) text += " " + theme.fg("accent", id);
 			if (title) text += " " + theme.fg("dim", `"${title}"`);
 			return new Text(text, 0, 0);
@@ -956,9 +956,9 @@ export default function ktExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	// ── /kt command (TUI browser) ──────────────────────────────────────
+	// ── /ticket command (TUI browser) ──────────────────────────────────
 
-	pi.registerCommand("kt", {
+	pi.registerCommand("ticket", {
 		description: "Browse and manage tickets",
 		getArgumentCompletions: (prefix: string) => {
 			const dir = getTicketsDir(process.cwd());
@@ -1144,9 +1144,9 @@ export default function ktExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	// ── /kt-create command ─────────────────────────────────────────────
+	// ── /ticket-create command ──────────────────────────────────────────
 
-	pi.registerCommand("kt-create", {
+	pi.registerCommand("ticket-create", {
 		description: "Create an epic and tasks from a plan",
 		handler: async (_args, ctx) => {
 			const prompt =
@@ -1165,21 +1165,21 @@ export default function ktExtension(pi: ExtensionAPI) {
 				"- For each task, draft: description, acceptance criteria, and test criteria\n\n" +
 				"Ask me to review and adjust the plan before proceeding.\n\n" +
 				"**Step 3: Create** — Once I approve the plan, create the tickets:\n" +
-				"1. `kt create` the epic (type=epic) with description and acceptance criteria\n" +
-				"2. `kt create` each task (type=task, parent=<epic-id>) with:\n" +
+				"1. `ticket create` the epic (type=epic) with description and acceptance criteria\n" +
+				"2. `ticket create` each task (type=task, parent=<epic-id>) with:\n" +
 				"   - description: what to implement\n" +
 				"   - acceptance: definition of done\n" +
 				"   - tests: specific test criteria that must pass before closing\n" +
 				"   - priority and deps as planned\n" +
-				"3. Show the final ticket list with `kt list`\n\n" +
+				"3. Show the final ticket list with `ticket list`\n\n" +
 				"Start by asking me: what do you want to build?";
 			ctx.ui.setEditorText(prompt);
 		},
 	});
 
-	// ── /kt-run-all command ────────────────────────────────────────────
+	// ── /ticket-run-all command ─────────────────────────────────────────
 
-	pi.registerCommand("kt-run-all", {
+	pi.registerCommand("ticket-run-all", {
 		description: "Process all ready tickets, optionally in separate sessions",
 		handler: async (_args, ctx) => {
 			const dir = getTicketsDir(ctx.cwd);
@@ -1204,7 +1204,7 @@ export default function ktExtension(pi: ExtensionAPI) {
 				"Work through all in this session",
 				"Cancel",
 			];
-			const forkChoice = await ctx.ui.select("kt-run-all: Session strategy", forkOptions);
+			const forkChoice = await ctx.ui.select("ticket-run-all: Session strategy", forkOptions);
 
 			if (!forkChoice || forkChoice === "Cancel") return;
 
@@ -1212,9 +1212,9 @@ export default function ktExtension(pi: ExtensionAPI) {
 				// Inject prompt to work through all tickets
 				const prompt =
 					`Work through these tickets in order, one at a time. For each ticket:\n` +
-					`1. Use \`kt start <id>\` to begin\n` +
+					`1. Use \`ticket start <id>\` to begin\n` +
 					`2. Implement the work\n` +
-					`3. Use \`kt close <id>\` when done (with tests_confirmed=true if it has tests)\n` +
+					`3. Use \`ticket close <id>\` when done (with tests_confirmed=true if it has tests)\n` +
 					`4. Move to the next ticket\n\n` +
 					`Ready tickets:\n${ticketList}\n\nStart with the first one.`;
 				ctx.ui.setEditorText(prompt);
@@ -1231,7 +1231,7 @@ export default function ktExtension(pi: ExtensionAPI) {
 				(record.design ? `Design: ${record.design}\n\n` : "") +
 				(record.acceptance ? `Acceptance: ${record.acceptance}\n\n` : "") +
 				(record.tests ? `Tests: ${record.tests}\n\n` : "") +
-				`Steps:\n1. \`kt start ${firstTicket.id}\`\n2. Implement the work\n3. \`kt close ${firstTicket.id}\`${record.tests ? " (with tests_confirmed=true after verifying tests)" : ""}\n\n` +
+				`Steps:\n1. \`ticket start ${firstTicket.id}\`\n2. Implement the work\n3. \`ticket close ${firstTicket.id}\`${record.tests ? " (with tests_confirmed=true after verifying tests)" : ""}\n\n` +
 				`After closing, there are ${ready.length - 1} more tickets to process.`;
 
 			// For fork-each, create a new session with the prompt

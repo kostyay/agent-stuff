@@ -1,9 +1,9 @@
 /**
- * kt-core — Pure logic for the kt ticket tracker.
+ * ticket-core — Pure logic for the ticket tracker.
  *
  * Contains all types, parsing, serialization, sorting, query helpers,
  * and file I/O that have no dependency on pi extension APIs. Extracted
- * so that both kt.ts and unit tests can import this module directly.
+ * so that both the ticket extension and unit tests can import this module directly.
  */
 
 import crypto from "node:crypto";

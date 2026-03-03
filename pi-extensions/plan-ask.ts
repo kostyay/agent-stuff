@@ -329,7 +329,7 @@ export default function planAskExtension(pi: ExtensionAPI) {
 		const planText = lastAssistant ? getTextContent(lastAssistant) : "";
 
 		const action = await ctx.ui.select("Plan complete - what would you like to do?", [
-			"Create tickets with /kt-create",
+			"Create tickets with /ticket-create",
 			"Save plan to file",
 			"Save plan and execute it",
 			"Continue refining (stay in plan mode)",
@@ -342,9 +342,9 @@ export default function planAskExtension(pi: ExtensionAPI) {
 			return;
 		}
 
-		if (action === "Create tickets with /kt-create") {
+		if (action === "Create tickets with /ticket-create") {
 			setMode(AGENT, ctx);
-			pi.sendUserMessage("/kt-create");
+			pi.sendUserMessage("/ticket-create");
 			return;
 		}
 
