@@ -2,7 +2,7 @@
  * Session Namer
  *
  * Auto-generates a short descriptive session name using Haiku after the
- * first agent response. Re-generates on compaction or via /session-name-refresh.
+ * first user request. Re-generates on compaction or via /session-name-refresh.
  * Appends a mode emoji (📋 plan, 🧠 ask) based on the most recent non-agent mode.
  *
  * All AI calls run in the background — never blocks the agent loop.
@@ -11,11 +11,9 @@
 import { complete, getModel } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
-// ── Model ────────────────────────────────────────────────────────────────
+// ── Constants ────────────────────────────────────────────────────────────
 
 const HAIKU = getModel("anthropic", "claude-haiku-4-5");
-
-// ── Prompt ───────────────────────────────────────────────────────────────
 
 const NAME_PROMPT = `Generate a short descriptive name (3-6 words) for this coding session based on the conversation below.
 Rules:
@@ -30,7 +28,23 @@ Conversation:
 /** Max chars of conversation context sent to Haiku. */
 const MAX_CONTEXT_CHARS = 2000;
 
-// ── Mode tracking ────────────────────────────────────────────────────────
+/** Matches paired XML-style tags with content (e.g. `<skill>…</skill>`). */
+const TAG_BLOCK_RE = /<\/?[a-z_-]+(?:\s[^>]*)?>[\s\S]*?<\/[a-z_-]+>/gi;
+
+/** Matches lone/unpaired XML-style tags. */
+const LONE_TAG_RE = /<\/?[a-z_-]+(?:\s[^>]*)?>/gi;
+
+/** Matches trailing mode emoji suffixes on persisted names. */
+const EMOJI_SUFFIX_RE = /\s*[📋🧠]+\s*$/;
+
+const PLAN_ASK_ENTRY_TYPE = "plan-ask-mode-state";
+
+/**
+ * Custom entry type that pins the session name.
+ * Any extension can write `pi.appendEntry("session-name-pin", { name })` to
+ * claim the session name. Session-namer will not overwrite a pinned name.
+ */
+const SESSION_NAME_PIN_TYPE = "session-name-pin";
 
 type TrackedMode = "plan" | "ask";
 
@@ -39,79 +53,117 @@ const MODE_EMOJI: Record<TrackedMode, string> = {
 	ask: "🧠",
 };
 
-const PLAN_ASK_ENTRY_TYPE = "plan-ask-mode-state";
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+/** Remove XML tags leaked from skill expansion and collapse whitespace. */
+function stripTags(text: string): string {
+	return text.replace(TAG_BLOCK_RE, " ").replace(LONE_TAG_RE, " ").replace(/\s{2,}/g, " ").trim();
+}
+
+/** Extract plain text from a message content field. */
+function extractText(content: string | Array<{ type: string; text?: string }>): string {
+	if (typeof content === "string") return content;
+	return content
+		.filter((b) => b.type === "text")
+		.map((b) => b.text ?? "")
+		.join("\n");
+}
+
+/** Check whether any extension has pinned the session name. */
+function hasPinnedName(ctx: ExtensionContext): boolean {
+	return ctx.sessionManager.getEntries().some((entry) => {
+		const e = entry as { type: string; customType?: string };
+		return e.type === "custom" && e.customType === SESSION_NAME_PIN_TYPE;
+	});
+}
+
+/** Count user messages on the current branch. */
+function countUserTurns(ctx: ExtensionContext): number {
+	return ctx.sessionManager.getBranch()
+		.filter((entry) => entry.type === "message" && entry.message.role === "user")
+		.length;
+}
 
 // ── Extension ────────────────────────────────────────────────────────────
 
 /** Session Namer extension — auto-names sessions via Haiku. */
-export default function sessionNamerExtension(pi: ExtensionAPI) {
-	let agentEndCount = 0;
+export default function sessionNamerExtension(pi: ExtensionAPI): void {
+	let userTurnCount = 0;
 	let generating = false;
 	let lastNonAgentMode: TrackedMode | null = null;
 	let baseName: string | null = null;
+	let pinned = false;
 
-	// ── Helpers ──────────────────────────────────────────────────────
+	/** Reset all state to initial values. */
+	function resetState(): void {
+		userTurnCount = 0;
+		generating = false;
+		lastNonAgentMode = null;
+		baseName = null;
+		pinned = false;
+	}
 
-	/** Extract conversation text from the current branch for the prompt. */
+	/** Restore name, mode, and turn count from a (re)loaded session. */
+	function restoreFromSession(ctx: ExtensionContext): void {
+		syncModeFromSession(ctx);
+		pinned = hasPinnedName(ctx);
+
+		const existing = pi.getSessionName();
+		if (existing) {
+			const stripped = existing.replace(EMOJI_SUFFIX_RE, "").trim();
+			if (stripped) baseName = stripped;
+		}
+
+		userTurnCount = countUserTurns(ctx);
+	}
+
+	/** Scan session entries for plan-ask mode state. */
+	function syncModeFromSession(ctx: ExtensionContext): void {
+		const modeEntries = ctx.sessionManager.getEntries()
+			.filter((entry) => {
+				const e = entry as { type: string; customType?: string };
+				return e.type === "custom" && e.customType === PLAN_ASK_ENTRY_TYPE;
+			}) as Array<{ data?: { mode?: string } }>;
+
+		const last = modeEntries.at(-1);
+		const mode = last?.data?.mode;
+		if (mode === "plan" || mode === "ask") lastNonAgentMode = mode;
+	}
+
+	/** Apply the current name (base + mode emoji) to the session. Skips if pinned. */
+	function applyName(): void {
+		if (!baseName || pinned) return;
+		const name = lastNonAgentMode ? `${baseName} ${MODE_EMOJI[lastNonAgentMode]}` : baseName;
+		pi.setSessionName(name);
+	}
+
+	/** Collect conversation text from the current branch, stripped and truncated. */
 	function collectContext(ctx: ExtensionContext): string {
 		const parts: string[] = [];
 		let chars = 0;
 
 		for (const entry of ctx.sessionManager.getBranch()) {
 			if (entry.type !== "message") continue;
-			const msg = entry.message;
-			if (msg.role !== "user" && msg.role !== "assistant") continue;
+			const { role } = entry.message;
+			if (role !== "user" && role !== "assistant") continue;
 
-			let text = "";
-			if (typeof msg.content === "string") {
-				text = msg.content;
-			} else if (Array.isArray(msg.content)) {
-				text = msg.content
-					.filter((b: { type: string }) => b.type === "text")
-					.map((b: { type: string; text?: string }) => b.text ?? "")
-					.join("\n");
-			}
-
+			const text = extractText(entry.message.content);
 			if (!text) continue;
 
 			const remaining = MAX_CONTEXT_CHARS - chars;
 			if (remaining <= 0) break;
 
-			const chunk = text.length > remaining ? text.slice(0, remaining) : text;
-			parts.push(`${msg.role}: ${chunk}`);
+			const chunk = text.slice(0, remaining);
+			parts.push(`${role}: ${chunk}`);
 			chars += chunk.length;
 		}
 
-		return parts.join("\n\n");
+		return stripTags(parts.join("\n\n"));
 	}
 
-	/** Scan session entries for plan-ask mode state and update lastNonAgentMode. */
-	function syncModeFromSession(ctx: ExtensionContext): void {
-		for (const entry of ctx.sessionManager.getEntries()) {
-			const e = entry as { type: string; customType?: string; data?: { mode?: string } };
-			if (e.type !== "custom" || e.customType !== PLAN_ASK_ENTRY_TYPE) continue;
-			const mode = e.data?.mode;
-			if (mode === "plan") lastNonAgentMode = "plan";
-			else if (mode === "ask") lastNonAgentMode = "ask";
-		}
-	}
-
-	/** Build the full session name with mode emoji suffix. */
-	function buildFullName(): string {
-		if (!baseName) return "";
-		return lastNonAgentMode ? `${baseName} ${MODE_EMOJI[lastNonAgentMode]}` : baseName;
-	}
-
-	/** Apply the current name (base + mode tag) to the session. */
-	function applyName(): void {
-		const name = buildFullName();
-		if (name) pi.setSessionName(name);
-	}
-
-	/** Call Haiku to generate a name from the given context text. */
+	/** Call Haiku to generate a session name from context text. */
 	async function callHaiku(contextText: string, ctx: ExtensionContext): Promise<string | undefined> {
 		if (!HAIKU) return undefined;
-
 		const apiKey = await ctx.modelRegistry.getApiKey(HAIKU);
 		if (!apiKey) return undefined;
 
@@ -137,15 +189,13 @@ export default function sessionNamerExtension(pi: ExtensionAPI) {
 
 	/**
 	 * Fire-and-forget name generation.
-	 *
-	 * Collects context, calls Haiku, and sets the session name.
 	 * Silently catches errors — naming is best-effort.
 	 */
 	function generateInBackground(ctx: ExtensionContext, contextOverride?: string): void {
-		if (generating) return;
+		if (generating || pinned) return;
 		generating = true;
 
-		const contextText = contextOverride ?? collectContext(ctx);
+		const contextText = stripTags(contextOverride ?? collectContext(ctx));
 		if (!contextText) {
 			generating = false;
 			return;
@@ -158,72 +208,46 @@ export default function sessionNamerExtension(pi: ExtensionAPI) {
 					applyName();
 				}
 			})
-			.catch(() => { /* silent — best effort */ })
+			.catch(() => {})
 			.finally(() => { generating = false; });
 	}
 
 	// ── Events ───────────────────────────────────────────────────────
 
 	pi.on("session_start", async (_event, ctx) => {
-		agentEndCount = 0;
-		generating = false;
-		lastNonAgentMode = null;
-		baseName = null;
+		resetState();
+		restoreFromSession(ctx);
+	});
 
-		// Restore mode history
-		syncModeFromSession(ctx);
-
-		// Restore existing name
-		const existing = pi.getSessionName();
-		if (existing) {
-			// Strip emoji suffix to get base name
-			const stripped = existing.replace(/\s*[📋🧠]+\s*$/, "").trim();
-			if (stripped) baseName = stripped;
-		}
-
-		// Count past agent turns for agentEndCount
-		for (const entry of ctx.sessionManager.getBranch()) {
-			if (entry.type !== "message") continue;
-			if (entry.message.role === "assistant") agentEndCount++;
+	pi.on("before_agent_start", async (event, ctx) => {
+		userTurnCount++;
+		if (userTurnCount === 1 && event.prompt) {
+			generateInBackground(ctx, `user: ${event.prompt}`);
 		}
 	});
 
 	pi.on("agent_end", async (_event, ctx) => {
-		agentEndCount++;
-
-		// Sync mode in case plan-ask changed during this agent run
 		syncModeFromSession(ctx);
-
-		// Re-apply name with updated mode tag (cheap, no AI call)
 		if (baseName) applyName();
-
-		// Generate name after first agent response only
-		if (agentEndCount === 1) {
-			generateInBackground(ctx);
-		}
 	});
 
 	pi.on("session_compact", async (_event, ctx) => {
-		// Use compaction summary as context — already a condensed description
-		const entries = ctx.sessionManager.getBranch();
-		const compaction = entries
-			.filter((e): e is { type: "compaction"; summary: string } & typeof e =>
-				e.type === "compaction" && "summary" in e)
-			.pop();
+		const compaction = ctx.sessionManager.getBranch()
+			.filter((e) => e.type === "compaction" && "summary" in e)
+			.pop() as { summary: string } | undefined;
 
-		const summary = compaction?.summary;
-		if (summary) {
-			generateInBackground(ctx, summary);
+		if (compaction?.summary) {
+			generateInBackground(ctx, compaction.summary);
 		}
 	});
 
-	pi.on("session_switch", async (event) => {
-		if (event.reason === "new") {
-			agentEndCount = 0;
-			generating = false;
-			lastNonAgentMode = null;
-			baseName = null;
-		}
+	pi.on("session_switch", async (event, ctx) => {
+		resetState();
+		if (event.reason === "new") return;
+
+		// Resume — restore state from the switched-to session
+		restoreFromSession(ctx);
+		if (baseName) applyName();
 	});
 
 	// ── Command ──────────────────────────────────────────────────────
@@ -235,7 +259,6 @@ export default function sessionNamerExtension(pi: ExtensionAPI) {
 				ctx.ui.notify("Name generation already in progress", "info");
 				return;
 			}
-
 			ctx.ui.notify("Regenerating session name…", "info");
 			generateInBackground(ctx);
 		},

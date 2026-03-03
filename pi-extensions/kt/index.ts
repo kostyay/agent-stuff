@@ -165,19 +165,14 @@ async function withLock<T>(
 
 // ── Themed Rendering ───────────────────────────────────────────────────
 
+const STATUS_COLORS: Record<TicketStatus, { icon: ThemeColor; title: ThemeColor }> = {
+	closed: { icon: "dim", title: "dim" },
+	in_progress: { icon: "accent", title: "success" },
+	open: { icon: "muted", title: "text" },
+};
+
 function renderTicketHeading(theme: Theme, t: TicketFrontMatter, currentSession?: string): string {
-	let iconColor: ThemeColor;
-	let titleColor: ThemeColor;
-	if (t.status === "closed") {
-		iconColor = "dim";
-		titleColor = "dim";
-	} else if (t.status === "in_progress") {
-		iconColor = "accent";
-		titleColor = "success";
-	} else {
-		iconColor = "muted";
-		titleColor = "text";
-	}
+	const { icon: iconColor, title: titleColor } = STATUS_COLORS[t.status];
 
 	const icon = theme.fg(iconColor, statusIcon(t.status));
 	const meta = [theme.fg("muted", t.type), theme.fg("muted", `p${t.priority}`)];
@@ -806,8 +801,14 @@ export default function ktExtension(pi: ExtensionAPI) {
 					});
 					if (isError(result)) return errorResult("start", result.error);
 
+					// Pin session name to ticket
+					const ticket = result as TicketRecord;
+					const sessionName = `${ticket.id}: ${ticket.title || "(untitled)"}`;
+					pi.setSessionName(sessionName);
+					pi.appendEntry("session-name-pin", { name: sessionName });
+
 					refreshUI(ctx);
-					return ticketResult("start", result as TicketRecord);
+					return ticketResult("start", ticket);
 				}
 
 				// ── close ──────────────────────────────────────────────
@@ -913,10 +914,11 @@ export default function ktExtension(pi: ExtensionAPI) {
 
 		renderResult(result, { expanded }, theme) {
 			const details = result.details as KtToolDetails | undefined;
-			if (!details) {
-				const text = result.content[0];
-				return new Text(text?.type === "text" ? text.text : "", 0, 0);
-			}
+			const expandHint = theme.fg("dim", `(${keyHint("expandTools", "to expand")})`);
+			const fallbackText = result.content[0];
+			const fallback = () => new Text(fallbackText?.type === "text" ? fallbackText.text : "", 0, 0);
+
+			if (!details) return fallback();
 
 			if ("error" in details && details.error) {
 				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
@@ -924,36 +926,33 @@ export default function ktExtension(pi: ExtensionAPI) {
 
 			if (details.action === "list" && "tickets" in details) {
 				const text = renderTicketList(theme, details.tickets, expanded, details.currentSessionId);
-				return new Text(expanded ? text : text + "\n" + theme.fg("dim", `(${keyHint("expandTools", "to expand")})`), 0, 0);
+				return new Text(expanded ? text : `${text}\n${expandHint}`, 0, 0);
 			}
 
-			if ("ticket" in details && details.ticket) {
-				const ticket = details.ticket;
-				const heading = renderTicketHeading(theme, ticket);
-				const actionLabels: Record<string, string> = {
-					create: "Created", update: "Updated", delete: "Deleted",
-					start: "Started", close: "Closed", reopen: "Reopened", "add-note": "Note added to",
-				};
-				const label = actionLabels[details.action] ?? "";
-				let text = label
-					? theme.fg("success", "✓ ") + theme.fg("muted", `${label} `) + heading
-					: heading;
+			if (!("ticket" in details) || !details.ticket) return fallback();
 
-				if (expanded && details.action === "show") {
-					const t = ticket as TicketRecord;
-					const lines = [text];
-					if (t.description) lines.push(theme.fg("muted", `Description: ${t.description.slice(0, 200)}`));
-					if (t.design) lines.push(theme.fg("muted", `Design: ${t.design.slice(0, 200)}`));
-					if (t.tests) lines.push(theme.fg("muted", `Tests: ${t.tests.slice(0, 200)}`));
-					text = lines.join("\n");
-				}
+			const ticket = details.ticket;
+			const heading = renderTicketHeading(theme, ticket);
+			const ACTION_LABELS: Record<string, string> = {
+				create: "Created", update: "Updated", delete: "Deleted",
+				start: "Started", close: "Closed", reopen: "Reopened", "add-note": "Note added to",
+			};
+			const label = ACTION_LABELS[details.action] ?? "";
+			let text = label
+				? theme.fg("success", "✓ ") + theme.fg("muted", `${label} `) + heading
+				: heading;
 
-				if (!expanded) text += "\n" + theme.fg("dim", `(${keyHint("expandTools", "to expand")})`);
-				return new Text(text, 0, 0);
+			if (expanded && details.action === "show") {
+				const t = ticket as TicketRecord;
+				const lines = [text];
+				if (t.description) lines.push(theme.fg("muted", `Description: ${t.description.slice(0, 200)}`));
+				if (t.design) lines.push(theme.fg("muted", `Design: ${t.design.slice(0, 200)}`));
+				if (t.tests) lines.push(theme.fg("muted", `Tests: ${t.tests.slice(0, 200)}`));
+				text = lines.join("\n");
 			}
 
-			const t = result.content[0];
-			return new Text(t?.type === "text" ? t.text : "", 0, 0);
+			if (!expanded) text += `\n${expandHint}`;
+			return new Text(text, 0, 0);
 		},
 	});
 
@@ -1034,23 +1033,22 @@ export default function ktExtension(pi: ExtensionAPI) {
 						return "stay"; // handled via delete confirm
 					}
 					if (action === "close" || action === "reopen") {
-						const newStatus: TicketStatus = action === "close" ? "closed" : "open";
+						const closing = action === "close";
 						const result = await withLock(dir, record.id, ctx, async () => {
 							const fp = getTicketPath(dir, record.id);
 							if (!existsSync(fp)) return { error: "Not found" } as const;
 							const t = await readTicketFile(fp, record.id);
-							t.status = newStatus;
-							if (newStatus === "closed") { t.assignee = undefined; t.tests_passed = true; }
-							if (newStatus === "open") t.tests_passed = false;
+							t.status = closing ? "closed" : "open";
+							t.tests_passed = closing;
+							if (closing) t.assignee = undefined;
 							await writeTicketFile(fp, t);
 							return t;
 						});
 						if (isError(result)) {
 							ctx.ui.notify(result.error, "error");
 						} else {
-							const updated = await listTickets(dir);
-							selector?.setTickets(updated);
-							ctx.ui.notify(`${action === "close" ? "Closed" : "Reopened"} ${record.id}`, "info");
+							selector?.setTickets(await listTickets(dir));
+							ctx.ui.notify(`${closing ? "Closed" : "Reopened"} ${record.id}`, "info");
 							refreshUI(ctx);
 						}
 						return "stay";

@@ -383,21 +383,15 @@ export function listTicketsSync(dir: string): TicketFrontMatter[] {
 	return sortTickets(tickets);
 }
 
+const STATUS_ORDER: Record<TicketStatus, number> = { in_progress: 0, open: 1, closed: 2 };
+
 /** Sort tickets: in_progress first, then open by priority, closed last. */
 export function sortTickets(tickets: TicketFrontMatter[]): TicketFrontMatter[] {
-	return [...tickets].sort((a, b) => {
-		// Open before closed
-		if ((a.status === "closed") !== (b.status === "closed")) return a.status === "closed" ? 1 : -1;
-		// In-progress before open
-		if (a.status !== b.status) {
-			if (a.status === "in_progress") return -1;
-			if (b.status === "in_progress") return 1;
-		}
-		// Higher priority (lower number) first
-		if (a.priority !== b.priority) return a.priority - b.priority;
-		// Older first
-		return (a.created_at || "").localeCompare(b.created_at || "");
-	});
+	return [...tickets].sort((a, b) =>
+		(STATUS_ORDER[a.status] - STATUS_ORDER[b.status])
+		|| (a.priority - b.priority)
+		|| (a.created_at || "").localeCompare(b.created_at || ""),
+	);
 }
 
 /** Get tickets that are ready to work on (not closed, all deps resolved). */

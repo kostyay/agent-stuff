@@ -40,9 +40,9 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | [`review.ts`](pi-extensions/review.ts) | `/review` command — code review for uncommitted changes, PRs, or specific commits with optional auto-fix loop |
 | [`sandbox/`](pi-extensions/sandbox) | OS-level sandboxing for bash commands via `sandbox-exec` (macOS) / bubblewrap (Linux) with configurable filesystem and network restrictions |
 | [`session-breakdown.ts`](pi-extensions/session-breakdown.ts) | `/session-breakdown` command — analyzes session usage (cost by model) with a GitHub-style activity graph |
+| [`session-namer.ts`](pi-extensions/session-namer.ts) | Auto-generates a short session name via Haiku after the first user request, re-generates on compaction or `/session-name-refresh`, and appends a mode emoji (📋/🧠) |
 | [`simplify.ts`](pi-extensions/simplify.ts) | `/simplify` command — detects the dominant language of uncommitted changes and runs the matching code-simplifier skill |
 | [`status-bar.ts`](pi-extensions/status-bar.ts) | Rich two-line footer with model, context meter, token counts, cost, git status, tool tally, and color-coded profile badge |
-| [`todos.ts`](pi-extensions/todos.ts) | File-backed todo manager with a TUI for listing and editing todos |
 | [`whimsical.ts`](pi-extensions/whimsical.ts) | Replaces "Thinking..." with random phrases like "Reticulating splines..." and "Consulting the void..." |
 
 ## Shared Libraries
@@ -51,6 +51,7 @@ Reusable utilities in [`lib/`](lib), importable by extensions:
 
 | Library | Description |
 |---------|-------------|
+| [`changelog.ts`](lib/changelog.ts) | Pure-logic changelog parser — parses, splices, and reconciles markdown changelog sections (no I/O) |
 | [`timed-confirm.ts`](lib/timed-confirm.ts) | Timed confirmation dialog with auto-resolve countdown — used by commit/merge workflows |
 
 ## Skills
