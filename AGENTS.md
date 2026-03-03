@@ -51,18 +51,55 @@ Each `.ts` file in `pi-extensions/` must own exactly **one** concern:
 
 If an extension grows beyond ~400 lines, split it. If it does two unrelated things, split it.
 
-### Strict Isolation — No Cross-Extension Dependencies
+### Strict Isolation — No Cross-Extension Imports
 
-Extensions must **not** import from or depend on other extensions in this repo. Each extension is self-contained.
+Extensions must **not** import from or depend on other extensions in this repo. Each extension is self-contained at the module level.
 
 **Wrong:**
 ```typescript
 // plan-ask.ts
-import { askQuestion } from "./kbrainstorm"; // ❌ Cross-extension dependency
+import { askQuestion } from "./kbrainstorm"; // ❌ Cross-extension import
 ```
 
 **Right:**
 Each extension registers its own tools/commands. If two extensions need the same capability, extract it into a shared utility in a `lib/` directory, or better yet, make each extension independently register what it needs.
+
+### Cross-Extension Communication via `pi.events`
+
+Extensions communicate at runtime through the shared event bus (`pi.events`), never through imports. Data-producing extensions emit typed events; consuming extensions listen.
+
+```typescript
+// producer (ticket extension)
+pi.events.emit("ticket:stats", { total: 14, epics: 1, open: 12, ... });
+
+// consumer (status-bar extension)
+pi.events.on("ticket:stats", (data) => { ticketStats = data; });
+```
+
+### Status Bar Rendering Architecture
+
+`status-bar.ts` is the **sole owner of footer rendering**. Other extensions must **not** call `ctx.ui.setStatus()` to display information in the footer. Instead:
+
+1. **Data extensions** (e.g., `ticket/`) compute stats and emit them via `pi.events` using a namespaced event (e.g., `"ticket:stats"`).
+2. **`status-bar.ts`** listens for these events, stores the data, and renders it in the footer alongside model info, context meter, git stats, and tool tallies.
+
+The status bar **may be aware of specific data shapes** (e.g., ticket stats interface) to render them with appropriate formatting, icons, and color coding. This is intentional — the status bar is a UI orchestrator, not a generic passthrough.
+
+**Wrong:**
+```typescript
+// ticket extension
+ctx.ui.setStatus("ticket", "🎫 14 tickets"); // ❌ Extension rendering its own footer status
+```
+
+**Right:**
+```typescript
+// ticket extension — emit raw data
+pi.events.emit("ticket:stats", { total: 14, epics: 1, open: 12, inProgress: 1, closed: 1 });
+
+// status-bar.ts — owns the rendering
+pi.events.on("ticket:stats", (data) => { ticketStats = data; });
+// ... renders ticketStats in footer with proper theme colors
+```
 
 ### Naming Conventions
 

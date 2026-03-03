@@ -103,11 +103,27 @@ interface GitDiffStats {
 	unstagedFiles: number;
 }
 
+/** Ticket statistics emitted by the ticket extension via pi.events. */
+interface TicketStats {
+	total: number;
+	epics: number;
+	tasks: number;
+	bugs: number;
+	features: number;
+	open: number;
+	inProgress: number;
+	closed: number;
+}
+
 /** Status bar extension — registers a rich two-line custom footer. */
 export default function statusBarExtension(pi: ExtensionAPI) {
 	const counts: Record<string, number> = {};
 	let turnCount = 0;
 	let agentActive = false;
+
+	// Ticket stats (populated via pi.events from ticket extension)
+	let ticketStats: TicketStats | null = null;
+	pi.events.on("ticket:stats", (data: TicketStats) => { ticketStats = data; });
 
 	// Cached git diff stats (refreshed on tool_execution_end for write/edit/bash)
 	let diffStats: GitDiffStats | null = null;
@@ -257,20 +273,24 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 					const statuses = footerData.getExtensionStatuses();
 					const sandboxStatus = statuses.get("sandbox");
 					const otherStatuses = [...statuses.entries()]
-						.filter(([key]) => key !== "sandbox");
-
-					// Count ticket statuses separately; show as "N tickets"
-					const ticketCount = otherStatuses.filter(([, val]) => val === "ticket").length;
-					const nonTicketStatuses = otherStatuses
-						.filter(([, val]) => val !== "ticket")
+						.filter(([key]) => key !== "sandbox")
 						.map(([, val]) => val);
-					if (ticketCount > 0) {
-						nonTicketStatuses.push(`${ticketCount} ticket${ticketCount > 1 ? "s" : ""}`);
+
+					// Build ticket status segment from event data
+					if (ticketStats && ticketStats.total > 0) {
+						const parts: string[] = [];
+						if (ticketStats.epics > 0) parts.push(theme.fg("accent", `${ticketStats.epics}E`));
+						const nonEpic = ticketStats.tasks + ticketStats.bugs + ticketStats.features;
+						if (nonEpic > 0) parts.push(theme.fg("muted", `${nonEpic}T`));
+						if (ticketStats.inProgress > 0) parts.push(theme.fg("warning", `${ticketStats.inProgress}🔵`));
+						if (ticketStats.open > 0) parts.push(theme.fg("dim", `${ticketStats.open}⚪`));
+						if (ticketStats.closed > 0) parts.push(theme.fg("success", `${ticketStats.closed}✅`));
+						otherStatuses.push(`🎫 ${parts.join(" ")}`);
 					}
 
 					let l1Mid = "";
-					if (nonTicketStatuses.length > 0) {
-						l1Mid = " " + nonTicketStatuses.join(theme.fg("dim", " · "));
+					if (otherStatuses.length > 0) {
+						l1Mid = " " + otherStatuses.join(theme.fg("dim", " · "));
 					}
 
 					const pad1 = " ".repeat(

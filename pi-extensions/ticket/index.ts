@@ -607,15 +607,22 @@ export default function ticketExtension(pi: ExtensionAPI) {
 	function refreshUI(ctx: ExtensionContext): void {
 		const dir = getTicketsDir(ctx.cwd);
 		const tickets = listTicketsSync(dir);
-		const inProgress = tickets.filter((t) => t.status === "in_progress");
-		const remaining = tickets.filter((t) => t.status !== "closed").length;
 
-		// Status
-		if (!tickets.length) {
-			ctx.ui.setStatus("🎫 no tickets", "ticket");
-		} else {
-			ctx.ui.setStatus(`🎫 ${tickets.length} tickets (${remaining} remaining)`, "ticket");
+		// Single-pass counting for ticket stats
+		const stats = { epics: 0, tasks: 0, bugs: 0, features: 0, open: 0, inProgress: 0, closed: 0 };
+		for (const t of tickets) {
+			if (t.type === "epic") stats.epics++;
+			else if (t.type === "task") stats.tasks++;
+			else if (t.type === "bug") stats.bugs++;
+			else if (t.type === "feature") stats.features++;
+			if (t.status === "open") stats.open++;
+			else if (t.status === "in_progress") stats.inProgress++;
+			else if (t.status === "closed") stats.closed++;
 		}
+
+		pi.events.emit("ticket:stats", { total: tickets.length, ...stats });
+
+		const inProgress = tickets.filter((t) => t.status === "in_progress");
 
 		// Widget: current in-progress ticket
 		if (inProgress.length) {
