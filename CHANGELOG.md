@@ -34,7 +34,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/network-isolation-config
+
+
+## refactor/rename-kt-to-ticket
+
+Renamed the `kt` extension to `ticket` for improved clarity and consistency (#19). All user-facing commands (`/ticket`, `/ticket-create`, `/ticket-run-all`), the `ticket` tool with its 9 actions, internal modules (`ticket-core.ts`), UI identifiers, and test files have been updated to reflect the new naming. This is a breaking change for users relying on `/kt` commands—they must now use the `/ticket` equivalents. The functionality and file storage structure (`.tickets/` directory) remain unchanged.
+
+## [1.0.7](https://github.com/kostyay/agent-stuff/pull/18) - 2026-03-03
 
 Added configurable network isolation controls to the sandbox extension (#18), enabling users to selectively weaken network restrictions for compatibility with Go-based CLI tools (gh, docker, etc.) that require macOS trust daemon access for TLS certificate verification. The new `enableWeakerNetworkIsolation` option is exposed in the `SandboxConfig` interface with a default value of `true` to support these commonly-used tools out-of-the-box, while still allowing stricter isolation configurations when needed. Configuration merging logic has been updated to properly handle the new isolation setting alongside existing sandbox policies.
 
