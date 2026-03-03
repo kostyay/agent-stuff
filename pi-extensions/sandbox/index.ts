@@ -204,9 +204,18 @@ function killTree(child: ReturnType<typeof spawn>) {
 // Status helpers
 // ---------------------------------------------------------------------------
 
-function updateStatus(ctx: ExtensionContext, config: SandboxConfig, active: boolean) {
+function updateStatus(ctx: ExtensionContext, config: SandboxConfig, active: boolean, readonly = false) {
 	if (!active) {
 		ctx.ui.setStatus("sandbox", ctx.ui.theme.fg("warning", "🔓 Sandbox OFF"));
+		return;
+	}
+
+	if (readonly) {
+		ctx.ui.setStatus(
+			"sandbox",
+			ctx.ui.theme.fg("accent", "🔒 Sandbox") +
+				ctx.ui.theme.fg("warning", " [READONLY]"),
+		);
 		return;
 	}
 
@@ -264,6 +273,10 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 	// Tracks whether the sandbox is currently active. Updated by session_start
 	// and /sandbox on|off. Checked synchronously by user_bash.
 	let sandboxActive = false;
+
+	// Readonly mode state — set by plan-ask extension via pi.events.
+	let readonlyActive = false;
+	let lastCtx: ExtensionContext | null = null;
 
 	// Sandbox readiness — awaited by the bash tool to avoid races.
 	// Resolves to true when sandbox is active, false otherwise.
@@ -337,6 +350,7 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 
 	// ---- Initialize sandbox on session start ----
 	pi.on("session_start", async (_event, ctx) => {
+		lastCtx = ctx;
 		const noSandbox = pi.getFlag("no-sandbox") as boolean;
 
 		if (noSandbox) {
@@ -366,8 +380,51 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 		await sandboxReady;
 	});
 
+	// ---- Readonly mode (emitted by plan-ask extension) ----
+	pi.events.on("readonly", (data: unknown) => {
+		const { enabled, ack } = data as { enabled: boolean; ack: () => void };
+
+		if (!sandboxActive || !lastCtx) return;
+
+		ack();
+
+		if (enabled === readonlyActive) return;
+		readonlyActive = enabled;
+
+		const ctx = lastCtx;
+		const config = loadConfig(ctx.cwd);
+
+		if (enabled) {
+			const readonlyConfig: SandboxConfig = {
+				...config,
+				filesystem: {
+					...config.filesystem,
+					allowWrite: [],
+				},
+			};
+			sandboxReady = activateSandbox(readonlyConfig, ctx).then((ok) => {
+				if (ok) {
+					updateStatus(ctx, readonlyConfig, true, true);
+					ctx.ui.notify("🔒 Sandbox: filesystem set to read-only", "info");
+				}
+				return ok;
+			});
+		} else {
+			sandboxReady = activateSandbox(config, ctx).then((ok) => {
+				if (ok) {
+					updateStatus(ctx, config, true, false);
+					ctx.ui.notify("🔓 Sandbox: filesystem writes restored", "info");
+				}
+				return ok;
+			});
+			readonlyActive = false;
+		}
+	});
+
 	// ---- Cleanup ----
 	pi.on("session_shutdown", async (_event, ctx) => {
+		readonlyActive = false;
+		lastCtx = null;
 		await deactivateSandbox(ctx);
 	});
 

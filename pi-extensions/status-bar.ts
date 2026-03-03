@@ -3,6 +3,7 @@
  *
  * Line 1: [profile badge] + status icon + model + context meter (left), tokens in/out/cache + cost (right)
  * Line 2: cwd (branch ±dirty +add,-del ✨new📝mod🗑del⚡unstaged) on left, tool tally + turn on right
+ * Line 3: sandbox status (shown only when sandbox extension is active)
  *
  * When PI_CODING_AGENT_DIR is set to a non-default path, a colored profile badge
  * is shown at the start of line 1. The badge background color is deterministically
@@ -254,9 +255,13 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 						theme.fg("dim", " ");
 
 					const statuses = footerData.getExtensionStatuses();
+					const sandboxStatus = statuses.get("sandbox");
+					const otherStatuses = [...statuses.entries()]
+						.filter(([key]) => key !== "sandbox")
+						.map(([, val]) => val);
 					let l1Mid = "";
-					if (statuses.size > 0) {
-						l1Mid = " " + [...statuses.values()].join(theme.fg("dim", " · "));
+					if (otherStatuses.length > 0) {
+						l1Mid = " " + otherStatuses.join(theme.fg("dim", " · "));
 					}
 
 					const pad1 = " ".repeat(
@@ -339,7 +344,14 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 					);
 					const line2 = truncateToWidth(l2Left + pad2 + l2Right, width, "");
 
-					return [line1, line2];
+					if (!sandboxStatus) return [line1, line2];
+
+					// --- Line 3: sandbox status (left-aligned) ---
+					const l3Left = " " + sandboxStatus;
+					const pad3 = " ".repeat(Math.max(1, width - visibleWidth(l3Left)));
+					const line3 = truncateToWidth(l3Left + pad3, width, "");
+
+					return [line1, line2, line3];
 				},
 			};
 		});

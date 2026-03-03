@@ -30,7 +30,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/terminal-progress-indicator
+
+
+## refactor/delegate-filesystem-enforcement
+
+This refactor consolidates filesystem enforcement into a dedicated event-driven architecture (#17). The plan-ask extension now delegates read-only command filtering to the sandbox extension via a shared `readonly` event on `pi.events`, eliminating ~100 lines of duplicated destructive-command pattern matching and reducing the plan-ask module's responsibility to tool restrictions and system prompts only. The sandbox extension listens for readonly state changes and dynamically reconfigures its filesystem allowlist, with an acknowledgment mechanism that warns users if the sandbox extension isn't loaded. Additionally, the status bar now displays sandbox state on a dedicated line 3, surfacing sandbox and readonly modes to users in real-time.
+
+## [1.0.5](https://github.com/kostyay/agent-stuff/pull/16) - 2026-03-03
 
 Introduces a terminal progress indicator extension using OSC 9;4 escape sequences (#16), providing visual feedback in the terminal tab/titlebar with an indeterminate pulse while the agent is working. The indicator automatically clears when the agent finishes or waits for user input, with graceful cleanup on process exit to prevent stuck indicators. Supports multiple terminal emulators including Ghostty, iTerm2, WezTerm, Windows Terminal, and ConEmu, enhancing the user experience during long-running agent operations without requiring explicit status polling.
 
