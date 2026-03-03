@@ -276,8 +276,8 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 						.filter(([key]) => key !== "sandbox")
 						.map(([, val]) => val);
 
-					// Build ticket status segment from event data
-					if (ticketStats && ticketStats.total > 0) {
+					// Build ticket status segment from event data (hide when all closed)
+					if (ticketStats && (ticketStats.open > 0 || ticketStats.inProgress > 0)) {
 						const parts: string[] = [];
 						if (ticketStats.epics > 0) parts.push(theme.fg("accent", `${ticketStats.epics}E`));
 						const nonEpic = ticketStats.tasks + ticketStats.bugs + ticketStats.features;
