@@ -38,7 +38,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/aggregate-ticket-statuses
+
+
+## refactor/ticket-event-driven-status
+
+This PR introduces an **event-driven architecture for ticket status rendering**, decoupling the ticket extension from direct footer manipulation (#21). The ticket extension now emits structured `ticket:stats` events via `pi.events` instead of calling `ctx.ui.setStatus()`, while the status-bar extension listens and renders rich ticket metrics (epics, tasks, bugs, features, status breakdowns) with theme-aware formatting. Supporting changes improve ticket description guidance to ensure self-contained documentation and simplify session creation logic by separating session initialization from message dispatch. The refactor reinforces architectural isolation—extensions communicate only through the shared event bus, never through cross-extension imports.
+
+## [1.0.9](https://github.com/kostyay/agent-stuff/pull/20) - 2026-03-03
 
 The status bar now aggregates multiple ticket statuses into a single count display (e.g., "3 tickets") rather than listing each ticket individually (#20). This improvement reduces visual clutter in the extension's footer display while maintaining visibility of ticket status information. The change filters ticket statuses separately from other extension statuses and applies proper pluralization, making the status bar more readable when dealing with multiple concurrent tickets.
 
