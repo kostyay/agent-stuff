@@ -35,6 +35,7 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | [`kt/`](pi-extensions/kt) | `kt` tool — git-backed ticket tracker storing tickets as markdown files in `.tickets/` with hierarchy, dependencies, and status workflow |
 | [`loop.ts`](pi-extensions/loop.ts) | `/loop` command — runs a follow-up prompt loop with a breakout condition for iterative coding |
 | [`notify.ts`](pi-extensions/notify.ts) | Desktop notifications (OSC 777) when the agent finishes and is waiting for input |
+| [`terminal-progress.ts`](pi-extensions/terminal-progress.ts) | Terminal progress indicator (OSC 9;4) — indeterminate pulse while agent is working, clears on finish or user input |
 | [`plan-ask.ts`](pi-extensions/plan-ask.ts) | `/plan`, `/ask` commands and Shift+Tab mode rotation (🤖 agent → ❓ ask → 📋 plan) with read-only tool restrictions for safe exploration |
 | [`prompt-editor.ts`](pi-extensions/prompt-editor.ts) | Prompt mode selector (default/fast/precise) with per-mode model & thinking persistence |
 | [`review.ts`](pi-extensions/review.ts) | `/review` command — code review for uncommitted changes, PRs, or specific commits with optional auto-fix loop |
