@@ -54,10 +54,14 @@ interface SandboxConfig extends SandboxRuntimeConfig {
 	enabled?: boolean;
 	ignoreViolations?: Record<string, string[]>;
 	enableWeakerNestedSandbox?: boolean;
+	enableWeakerNetworkIsolation?: boolean;
 }
 
 const DEFAULT_CONFIG: SandboxConfig = {
 	enabled: true,
+	// Required for Go-based CLIs (gh, docker, etc.) that use the macOS
+	// trust daemon for TLS certificate verification.
+	enableWeakerNetworkIsolation: true,
 	network: {
 		allowedDomains: [
 			"npmjs.org",
@@ -94,6 +98,8 @@ function mergeConfig(base: SandboxConfig, overrides: Partial<SandboxConfig>): Sa
 	if (overrides.enabled !== undefined) result.enabled = overrides.enabled;
 	if (overrides.enableWeakerNestedSandbox !== undefined)
 		result.enableWeakerNestedSandbox = overrides.enableWeakerNestedSandbox;
+	if (overrides.enableWeakerNetworkIsolation !== undefined)
+		result.enableWeakerNetworkIsolation = overrides.enableWeakerNetworkIsolation;
 
 	if (overrides.network) {
 		result.network = {
@@ -303,6 +309,7 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 				filesystem: config.filesystem,
 				ignoreViolations: config.ignoreViolations,
 				enableWeakerNestedSandbox: config.enableWeakerNestedSandbox,
+				enableWeakerNetworkIsolation: config.enableWeakerNetworkIsolation,
 			});
 			sandboxActive = true;
 			updateStatus(ctx, config, true);
