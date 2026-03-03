@@ -40,7 +40,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## refactor/ticket-event-driven-status
+
+
+## fix/hide-closed-tickets-status
+
+The status bar now hides ticket status information when all tickets are closed, improving UI clarity by eliminating clutter in the status display (#22). Previously, the status would remain visible even with zero open or in-progress tickets; the fix refines the visibility logic to check for active work items instead of just total ticket count. This change reduces unnecessary status indicators while maintaining visibility for ongoing and blocked work.
+
+## [1.0.10](https://github.com/kostyay/agent-stuff/pull/21) - 2026-03-03
 
 This PR introduces an **event-driven architecture for ticket status rendering**, decoupling the ticket extension from direct footer manipulation (#21). The ticket extension now emits structured `ticket:stats` events via `pi.events` instead of calling `ctx.ui.setStatus()`, while the status-bar extension listens and renders rich ticket metrics (epics, tasks, bugs, features, status breakdowns) with theme-aware formatting. Supporting changes improve ticket description guidance to ensure self-contained documentation and simplify session creation logic by separating session initialization from message dispatch. The refactor reinforces architectural isolation—extensions communicate only through the shared event bus, never through cross-extension imports.
 
