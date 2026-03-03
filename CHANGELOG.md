@@ -36,7 +36,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## refactor/rename-kt-to-ticket
+
+
+## feat/aggregate-ticket-statuses
+
+The status bar now aggregates multiple ticket statuses into a single count display (e.g., "3 tickets") rather than listing each ticket individually (#20). This improvement reduces visual clutter in the extension's footer display while maintaining visibility of ticket status information. The change filters ticket statuses separately from other extension statuses and applies proper pluralization, making the status bar more readable when dealing with multiple concurrent tickets.
+
+## [1.0.8](https://github.com/kostyay/agent-stuff/pull/19) - 2026-03-03
 
 Renamed the `kt` extension to `ticket` for improved clarity and consistency (#19). All user-facing commands (`/ticket`, `/ticket-create`, `/ticket-run-all`), the `ticket` tool with its 9 actions, internal modules (`ticket-core.ts`), UI identifiers, and test files have been updated to reflect the new naming. This is a breaking change for users relying on `/kt` commands—they must now use the `/ticket` equivalents. The functionality and file storage structure (`.tickets/` directory) remain unchanged.
 
