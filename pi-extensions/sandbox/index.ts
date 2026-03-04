@@ -28,17 +28,24 @@
  * }
  * ```
  *
+ * Per-directory state is remembered across sessions in
+ * <profile>/sandbox-state.json (where <profile> is PI_CODING_AGENT_DIR,
+ * e.g. ~/.pi/agent-personal). Each profile maintains its own state, so
+ * disabling sandbox in "personal" doesn't affect "work". `/sandbox reset`
+ * clears the remembered state and falls back to config defaults.
+ *
  * Usage:
  * - `pi -e ./sandbox`             — sandbox enabled with default/config settings
  * - `pi -e ./sandbox --no-sandbox` — disable sandboxing
  * - `/sandbox`                    — show current status and configuration
- * - `/sandbox on`                 — enable sandbox at runtime
- * - `/sandbox off`                — disable sandbox at runtime
+ * - `/sandbox on`                 — enable sandbox at runtime (remembered)
+ * - `/sandbox off`                — disable sandbox at runtime (remembered)
+ * - `/sandbox reset`              — clear remembered state for this directory
  *
  * Linux also requires: bubblewrap, socat, ripgrep
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -140,6 +147,51 @@ function loadConfig(cwd: string): SandboxConfig {
 	}
 
 	return config;
+}
+
+// ---------------------------------------------------------------------------
+// Per-directory state persistence (profile-aware)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the profile directory from PI_CODING_AGENT_DIR env var.
+ * Falls back to ~/.pi/agent when unset.
+ */
+function getProfileDir(): string {
+	return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+}
+
+/** Path to the state file inside the active profile directory. */
+function getStatePath(): string {
+	return join(getProfileDir(), "sandbox-state.json");
+}
+
+type DirectoryStateMap = Record<string, { enabled: boolean }>;
+
+/** Load the persisted per-directory state map from the active profile. */
+function loadDirectoryState(): DirectoryStateMap {
+	const statePath = getStatePath();
+	if (!existsSync(statePath)) return {};
+	try {
+		return JSON.parse(readFileSync(statePath, "utf-8")) as DirectoryStateMap;
+	} catch {
+		return {};
+	}
+}
+
+/** Persist the sandbox enabled/disabled state for a specific directory. */
+function saveDirectoryState(cwd: string, enabled: boolean): void {
+	const state = loadDirectoryState();
+	state[cwd] = { enabled };
+	const dir = getProfileDir();
+	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+	writeFileSync(getStatePath(), JSON.stringify(state, null, "\t"), "utf-8");
+}
+
+/** Get the persisted state for a directory, or undefined if never set. */
+function getDirectoryState(cwd: string): boolean | undefined {
+	const state = loadDirectoryState();
+	return state[cwd]?.enabled;
 }
 
 // ---------------------------------------------------------------------------
@@ -370,11 +422,18 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 
 		const config = loadConfig(ctx.cwd);
 
-		if (!config.enabled) {
+		// Persisted per-directory state overrides config.enabled
+		const persistedState = getDirectoryState(ctx.cwd);
+		const enabled = persistedState !== undefined ? persistedState : config.enabled;
+
+		if (!enabled) {
 			sandboxReady = Promise.resolve(false);
 			sandboxActive = false;
 			updateStatus(ctx, config, false);
-			ctx.ui.notify("Sandbox disabled via config", "info");
+			const reason = persistedState !== undefined
+				? "Sandbox disabled (remembered from last session)"
+				: "Sandbox disabled via config";
+			ctx.ui.notify(reason, "info");
 			return;
 		}
 
@@ -437,11 +496,12 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 
 	// ---- /sandbox command — show status, or toggle with on/off ----
 	pi.registerCommand("sandbox", {
-		description: "Show sandbox status, or toggle with: /sandbox on | /sandbox off",
+		description: "Show sandbox status, or toggle with: /sandbox on | off | reset",
 		getArgumentCompletions: (prefix: string) => {
 			const items = [
-				{ value: "on", label: "on", description: "Enable sandbox" },
-				{ value: "off", label: "off", description: "Disable sandbox" },
+				{ value: "on", label: "on", description: "Enable sandbox (remembered)" },
+				{ value: "off", label: "off", description: "Disable sandbox (remembered)" },
+				{ value: "reset", label: "reset", description: "Clear remembered state, use config defaults" },
 			];
 			const filtered = items.filter((i) => i.value.startsWith(prefix));
 			return filtered.length > 0 ? filtered : null;
@@ -457,7 +517,8 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 				}
 				await deactivateSandbox(ctx);
 				sandboxReady = Promise.resolve(false);
-				ctx.ui.notify("Sandbox disabled", "warning");
+				saveDirectoryState(ctx.cwd, false);
+				ctx.ui.notify("Sandbox disabled (will stay off for this directory)", "warning");
 				return;
 			}
 
@@ -469,10 +530,24 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 				}
 				const config = loadConfig(ctx.cwd);
 				sandboxReady = activateSandbox(config, ctx).then((ok) => {
-					if (ok) ctx.ui.notify("Sandbox enabled", "info");
+					if (ok) {
+						saveDirectoryState(ctx.cwd, true);
+						ctx.ui.notify("Sandbox enabled (will stay on for this directory)", "info");
+					}
 					return ok;
 				});
 				await sandboxReady;
+				return;
+			}
+
+			// ---- /sandbox reset ----
+			if (arg === "reset") {
+				const state = loadDirectoryState();
+				delete state[ctx.cwd];
+				const dir = getProfileDir();
+				if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+				writeFileSync(getStatePath(), JSON.stringify(state, null, "\t"), "utf-8");
+				ctx.ui.notify("Cleared remembered sandbox state for this directory. Restart to use config defaults.", "info");
 				return;
 			}
 
@@ -485,9 +560,13 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 			const hint = sandboxActive
 				? theme.fg("dim", "  Use /sandbox off to disable")
 				: theme.fg("dim", "  Use /sandbox on to enable");
+			const persisted = getDirectoryState(ctx.cwd);
+			const persistedNote = persisted !== undefined
+				? theme.fg("dim", `\n  Remembered: ${persisted ? "on" : "off"} (use /sandbox reset to clear)`)
+				: "";
 
 			ctx.ui.notify(
-				`${theme.fg("accent", "Sandbox Status:")} ${status}\n${hint}\n\n${formatConfig(config, theme)}`,
+				`${theme.fg("accent", "Sandbox Status:")} ${status}${persistedNote}\n${hint}\n\n${formatConfig(config, theme)}`,
 				"info",
 			);
 		},
