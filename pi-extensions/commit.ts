@@ -38,6 +38,12 @@ const HAIKU = getModel("anthropic", "claude-haiku-4-5");
 /** Maximum diff length sent to the model (chars). */
 const MAX_DIFF_LENGTH = 15_000;
 
+/** Fallback commit message when AI generation fails or diff is empty. */
+const FALLBACK_COMMIT = "chore: update files";
+
+/** Fallback branch name when AI generation fails or diff is empty. */
+const FALLBACK_BRANCH = "feature/auto-branch";
+
 // ---------------------------------------------------------------------------
 // Prompts
 // ---------------------------------------------------------------------------
@@ -242,7 +248,7 @@ function parseCommitAndBranch(raw: string): CommitAndBranch {
 
 	const commitMessage = commitMatch
 		? cleanFirstLine(commitMatch[1])
-		: "chore: update files";
+		: FALLBACK_COMMIT;
 
 	const branchName = branchMatch
 		? cleanFirstLine(branchMatch[1])
@@ -250,11 +256,11 @@ function parseCommitAndBranch(raw: string): CommitAndBranch {
 			.replace(/[^a-z0-9/-]/g, "-")
 			.replace(/-+/g, "-")
 			.replace(/-$/, "")
-		: "feature/auto-branch";
+		: FALLBACK_BRANCH;
 
 	return {
-		commitMessage: commitMessage || "chore: update files",
-		branchName: branchName || "feature/auto-branch",
+		commitMessage: commitMessage || FALLBACK_COMMIT,
+		branchName: branchName || FALLBACK_BRANCH,
 	};
 }
 
@@ -266,7 +272,7 @@ async function generateCommitAndBranch(
 	diff: string,
 	ctx: ExtensionCommandContext,
 ): Promise<CommitAndBranch> {
-	const fallback: CommitAndBranch = { commitMessage: "chore: update files", branchName: "feature/auto-branch" };
+	const fallback: CommitAndBranch = { commitMessage: FALLBACK_COMMIT, branchName: FALLBACK_BRANCH };
 	if (!diff) return fallback;
 
 	const raw = await callHaiku(COMMIT_BRANCH_PROMPT + truncateDiff(diff), ctx);
@@ -281,9 +287,9 @@ async function generateCommitMessage(
 	diff: string,
 	ctx: ExtensionCommandContext,
 ): Promise<string> {
-	if (!diff) return "chore: update files";
+	if (!diff) return FALLBACK_COMMIT;
 	const raw = await callHaiku(COMMIT_ONLY_PROMPT + truncateDiff(diff), ctx);
-	return (raw && cleanFirstLine(raw)) || "chore: update files";
+	return (raw && cleanFirstLine(raw)) || FALLBACK_COMMIT;
 }
 
 // ---------------------------------------------------------------------------
@@ -832,6 +838,74 @@ async function detectMergeMethod(pi: ExtensionAPI): Promise<string> {
 }
 
 /**
+ * Attempt to merge a PR, handling branch protection failures.
+ *
+ * On a "policy prohibits the merge" error, offers the user two recovery
+ * paths in sequence:
+ * 1. `--admin` — use administrator privileges to merge immediately
+ * 2. `--auto` — queue the PR to merge when all requirements are met
+ *
+ * Both options are always offered; `gh` enforces actual permissions.
+ *
+ * Returns `true` if the merge succeeded (or auto-merge was enabled).
+ */
+async function performMerge(
+	pi: ExtensionAPI,
+	ctx: ExtensionCommandContext,
+	prNumber: number,
+	mergeMethod: string,
+): Promise<boolean> {
+	ctx.ui.notify("Merging…", "info");
+	const { code, stderr } = await pi.exec("gh", [
+		"pr", "merge", String(prNumber), mergeMethod,
+	]);
+
+	if (code === 0) return true;
+
+	const isPolicyBlock = /policy prohibits the merge|not mergeable/i.test(stderr);
+	if (!isPolicyBlock || !ctx.hasUI) {
+		ctx.ui.notify(`Merge failed: ${stderr}`, "error");
+		return false;
+	}
+
+	// Branch protection is blocking — offer admin override first
+	const useAdmin = await ctx.ui.confirm(
+		"Branch protection blocks merge",
+		"Use admin override to merge immediately?",
+	);
+	if (useAdmin) {
+		ctx.ui.notify("Merging with admin override…", "info");
+		const { code: adminCode, stderr: adminErr } = await pi.exec("gh", [
+			"pr", "merge", String(prNumber), mergeMethod, "--admin",
+		]);
+		if (adminCode === 0) return true;
+		ctx.ui.notify(`Admin merge failed: ${adminErr}`, "error");
+		return false;
+	}
+
+	// Offer --auto as fallback
+	const useAuto = await ctx.ui.confirm(
+		"Auto-merge instead?",
+		"Enable auto-merge? (PR merges automatically when requirements are met)",
+	);
+	if (useAuto) {
+		ctx.ui.notify("Enabling auto-merge…", "info");
+		const { code: autoCode, stderr: autoErr } = await pi.exec("gh", [
+			"pr", "merge", String(prNumber), mergeMethod, "--auto",
+		]);
+		if (autoCode === 0) {
+			ctx.ui.notify(`Auto-merge enabled for PR #${prNumber}`, "info");
+			return true;
+		}
+		ctx.ui.notify(`Failed to enable auto-merge: ${autoErr}`, "error");
+		return false;
+	}
+
+	ctx.ui.notify("Merge cancelled", "info");
+	return false;
+}
+
+/**
  * Attempt to rebase the current branch onto the default branch.
  *
  * If the rebase is clean, force-pushes the result. If there are merge
@@ -888,8 +962,6 @@ async function performRebase(
 	return false;
 }
 
-// ---------------------------------------------------------------------------
-// Extension entry point
 // ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
@@ -1053,16 +1125,10 @@ export default function commitExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			// Step 7: Merge (using repo's default merge strategy)
+			// Step 7: Merge (using repo's preferred merge strategy)
 			const mergeMethod = await detectMergeMethod(pi);
-			ctx.ui.notify("Merging…", "info");
-			const { code: mergeCode, stderr: mergeErr } = await pi.exec("gh", [
-				"pr", "merge", String(pr.number), mergeMethod,
-			]);
-			if (mergeCode !== 0) {
-				ctx.ui.notify(`Merge failed: ${mergeErr}`, "error");
-				return;
-			}
+			const merged = await performMerge(pi, ctx, pr.number, mergeMethod);
+			if (!merged) return;
 			ctx.ui.notify(`PR #${pr.number} merged`, "info");
 
 			// Step 8: Checkout default branch and pull

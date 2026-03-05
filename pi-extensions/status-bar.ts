@@ -94,6 +94,9 @@ export function formatTokenCount(n: number): string {
 /** Tools that mutate files and should trigger a git diff refresh. */
 export const MUTATING_TOOLS = new Set(["write", "edit", "bash"]);
 
+/** Extension status keys hidden from the status bar's middle section. */
+const HIDDEN_STATUSES = new Set(["sandbox", "auto-update", "packages"]);
+
 interface GitDiffStats {
 	additions: number;
 	deletions: number;
@@ -123,7 +126,7 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 
 	// Ticket stats (populated via pi.events from ticket extension)
 	let ticketStats: TicketStats | null = null;
-	pi.events.on("ticket:stats", (data: TicketStats) => { ticketStats = data; });
+	pi.events.on("ticket:stats", (data: unknown) => { ticketStats = data as TicketStats; });
 
 	// Cached git diff stats (refreshed on tool_execution_end for write/edit/bash)
 	let diffStats: GitDiffStats | null = null;
@@ -273,7 +276,7 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 					const statuses = footerData.getExtensionStatuses();
 					const sandboxStatus = statuses.get("sandbox");
 					const otherStatuses = [...statuses.entries()]
-						.filter(([key]) => key !== "sandbox")
+						.filter(([key, val]) => !HIDDEN_STATUSES.has(key) && !/auto.?update|pkg/i.test(val))
 						.map(([, val]) => val);
 
 					// Build ticket status segment from event data (hide when all closed)

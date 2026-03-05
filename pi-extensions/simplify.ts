@@ -97,10 +97,10 @@ function listAvailableSkills(): string[] {
 	}
 }
 
-/** Build the user message combining skill instructions and changed file list. */
-function buildPrompt(skillContent: string, files: string[]): string {
+/** Build the user message combining skill instructions, changed files, and optional extra instructions. */
+function buildPrompt(skillContent: string, files: string[], extraInstructions?: string): string {
 	const fileList = files.map((f) => `- ${f}`).join("\n");
-	return [
+	const parts = [
 		"Apply the following code simplification skill to the changed files listed below.",
 		"Read each file, plan your changes, apply them, then summarize what you simplified.",
 		"",
@@ -111,7 +111,13 @@ function buildPrompt(skillContent: string, files: string[]): string {
 		"## Skill instructions",
 		"",
 		skillContent,
-	].join("\n");
+	];
+
+	if (extraInstructions) {
+		parts.push("", "## Additional instructions", "", extraInstructions);
+	}
+
+	return parts.join("\n");
 }
 
 /** Filter files to those matching a language key. */
@@ -148,8 +154,8 @@ async function getChangedFiles(pi: ExtensionAPI): Promise<string[]> {
 export default function simplifyExtension(pi: ExtensionAPI) {
 	pi.registerCommand("simplify", {
 		description:
-			"Detect the language of uncommitted changes and apply the matching code-simplifier skill.",
-		handler: async (_args, ctx) => {
+			"Detect the language of uncommitted changes and apply the matching code-simplifier skill. Extra text after the command is forwarded as additional instructions.",
+		handler: async (args, ctx) => {
 			const changedFiles = await getChangedFiles(pi);
 			if (changedFiles.length === 0) {
 				ctx.ui.notify("No changed files found", "info");
@@ -181,7 +187,8 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 				"info",
 			);
 
-			pi.sendUserMessage(buildPrompt(skillContent, relevantFiles));
+			const extraInstructions = args.trim() || undefined;
+			pi.sendUserMessage(buildPrompt(skillContent, relevantFiles, extraInstructions));
 		},
 	});
 }
