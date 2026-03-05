@@ -261,6 +261,7 @@ async function triggerSimplify(
 	const relevantFiles = filterByLanguage(files, lang);
 	notify(`Simplifying ${relevantFiles.length} ${lang.toUpperCase()} file(s)…`, "info");
 
+	simplifyPending = true;
 	pi.sendUserMessage(buildPrompt(skillContent, relevantFiles, options.extraInstructions));
 	return true;
 }
@@ -293,6 +294,13 @@ let headSnapshot: string | null = null;
 /** Whether `/simplify` was invoked during the current agent turn. */
 let simplifyRanThisTurn = false;
 
+/**
+ * Set by `triggerSimplify` before `sendUserMessage` so the next
+ * `before_agent_start` can propagate it into `simplifyRanThisTurn`.
+ * This survives the turn boundary that would otherwise reset the flag.
+ */
+let simplifyPending = false;
+
 // ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
@@ -303,7 +311,8 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async () => {
 		headSnapshot = null;
-		simplifyRanThisTurn = false;
+		simplifyRanThisTurn = simplifyPending;
+		simplifyPending = false;
 
 		const { stdout, code } = await pi.exec("git", ["rev-parse", "HEAD"]);
 		if (code === 0 && stdout.trim()) {
@@ -319,8 +328,6 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 			"Pass explicit file paths to target specific files. " +
 			"Extra text that doesn't match a file extension is forwarded as additional instructions.",
 		handler: async (args, ctx) => {
-			simplifyRanThisTurn = true;
-
 			const { files, extraInstructions } = parseArgs(args);
 			await triggerSimplify(
 				pi,

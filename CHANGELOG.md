@@ -45,11 +45,18 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## refactor/simplify-file-paths-and-hooks
+
+
+
+## feat/plan-context-implementation
+
+Introduces a new "Clear context and implement" flow that enables users to save a plan to temporary storage, reset the conversation context, and spawn a new session to execute the plan from scratch (#25). This complements the existing plan persistence and execution features by allowing for cleaner context boundaries when implementing multi-step plans. The implementation adds temporary file management via `savePlanToTemp()` and an internal `_plan-implement` command that orchestrates session creation and plan handoff. Also refactors plan-saving logic to handle both direct file saves and context-clearing scenarios, improving code clarity and reducing duplication.
+
+## [1.0.13](https://github.com/kostyay/agent-stuff/pull/24) - 2026-03-05
 
 Enhanced file path handling and automatic code simplification workflow (#24). The `/simplify` command now accepts explicit file paths as arguments, with remaining text parsed as additional instructions, while non-matching tokens are filtered intelligently. A new `agent_end` hook automatically proposes running `/simplify` when source files are modified during an agent turn, presenting a timed confirmation that auto-accepts after 5 seconds. Internal improvements include refactored git helpers (`splitLines`, `getUntrackedFiles`, `getChangedFilesSince`), support for both command and event contexts via relaxed `ExtensionContext` typing, and text wrapping applied to option descriptions in kbrainstorm for improved terminal UI layout. The extension now tracks agent turn state through HEAD snapshots to enable intelligent change detection without requiring explicit user invocation.
 
-## feat/sandbox-state-persistence
+## [1.0.13](https://github.com/kostyay/agent-stuff/pull/23) - 2026-03-05
 
 Sandbox state is now persisted per directory across sessions, with per-profile isolation so different coding profiles maintain independent settings (#23). The sandbox extension now supports `/sandbox on`, `/sandbox off`, and `/sandbox reset` commands that remember your preference for each working directory, eliminating the need to re-enable or re-disable sandbox on every restart. Additionally, the commit extension introduces robust branch-protection handling via a new `performMerge()` function that offers sequential recovery paths—admin override followed by auto-merge—when policy blocks prevent standard merging, and extracts fallback constants for improved maintainability.
 
