@@ -32,18 +32,18 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | [`files.ts`](pi-extensions/files.ts) | `/files` command — file browser merging git status with session-referenced files, plus diff/edit actions |
 | [`git-rebase-master.ts`](pi-extensions/git-rebase-master.ts) | `/git-rebase-master` command — fetches latest main/master and rebases current branch with automatic LLM conflict resolution |
 | [`kbrainstorm.ts`](pi-extensions/kbrainstorm.ts) | `ask_question` tool — interactive TUI for brainstorming with multiple-choice and freeform answers |
-| [`kt/`](pi-extensions/kt) | `kt` tool — git-backed ticket tracker storing tickets as markdown files in `.tickets/` with hierarchy, dependencies, and status workflow |
+| [`ticket/`](pi-extensions/ticket) | `ticket` tool — git-backed ticket tracker storing tickets as markdown files in `.tickets/` with hierarchy, dependencies, and status workflow |
 | [`loop.ts`](pi-extensions/loop.ts) | `/loop` command — runs a follow-up prompt loop with a breakout condition for iterative coding |
 | [`notify.ts`](pi-extensions/notify.ts) | Desktop notifications (OSC 777) when the agent finishes and is waiting for input |
 | [`terminal-progress.ts`](pi-extensions/terminal-progress.ts) | Terminal progress indicator (OSC 9;4) — indeterminate pulse while agent is working, clears on finish or user input |
-| [`plan-ask.ts`](pi-extensions/plan-ask.ts) | `/plan`, `/ask` commands and Shift+Tab mode rotation (🤖 agent → ❓ ask → 📋 plan) with read-only tool restrictions for safe exploration |
+| [`plan-ask.ts`](pi-extensions/plan-ask.ts) | `/plan`, `/ask` commands and Shift+Tab mode rotation (🤖 agent → ❓ ask → 📋 plan) with read-only tool restrictions, clear-context-and-implement flow, and temp plan persistence |
 | [`prompt-editor.ts`](pi-extensions/prompt-editor.ts) | Prompt mode selector (default/fast/precise) with per-mode model & thinking persistence |
 | [`review.ts`](pi-extensions/review.ts) | `/review` command — code review for uncommitted changes, PRs, or specific commits with optional auto-fix loop |
-| [`sandbox/`](pi-extensions/sandbox) | OS-level sandboxing for bash commands via `sandbox-exec` (macOS) / bubblewrap (Linux) with configurable filesystem and network restrictions |
+| [`sandbox/`](pi-extensions/sandbox) | OS-level sandboxing for bash commands via `sandbox-exec` (macOS) / bubblewrap (Linux) with merged global+project config, per-directory state persistence, and network isolation |
 | [`session-breakdown.ts`](pi-extensions/session-breakdown.ts) | `/session-breakdown` command — analyzes session usage (cost by model) with a GitHub-style activity graph |
 | [`session-namer.ts`](pi-extensions/session-namer.ts) | Auto-generates a short session name via Haiku after the first user request, re-generates on compaction or `/session-name-refresh`, and appends a mode emoji (📋/🧠) |
-| [`simplify.ts`](pi-extensions/simplify.ts) | `/simplify` command — detects the dominant language of uncommitted changes and runs the matching code-simplifier skill |
-| [`status-bar.ts`](pi-extensions/status-bar.ts) | Rich two-line footer with model, context meter, token counts, cost, git status, tool tally, and color-coded profile badge |
+| [`simplify.ts`](pi-extensions/simplify.ts) | `/simplify` command — detects the dominant language of changed files and runs the matching code-simplifier skill; accepts explicit file paths or falls back to git; auto-proposes after agent turns that modify source files |
+| [`status-bar.ts`](pi-extensions/status-bar.ts) | Rich three-line footer with model, context meter, token counts, cost, git status, tool tally, color-coded profile badge, sandbox status, and event-driven ticket stats |
 | [`whimsical.ts`](pi-extensions/whimsical.ts) | Replaces "Thinking..." with random phrases like "Reticulating splines..." and "Consulting the void..." |
 
 ## Shared Libraries
