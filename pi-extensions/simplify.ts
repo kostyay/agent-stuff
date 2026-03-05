@@ -18,8 +18,8 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { readFileSync, readdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { timedConfirm } from "../lib/timed-confirm.ts";
@@ -62,7 +62,7 @@ function skillDir(lang: string): string {
 
 /** Extract the lowercase file extension (e.g. ".ts") from a path. */
 function fileExtension(filePath: string): string {
-	return filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
+	return extname(filePath).toLowerCase();
 }
 
 /** Check if a file path has a supported source extension. */
@@ -144,6 +144,44 @@ function filterByLanguage(files: string[], lang: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+/** Extension settings persisted in `$PI_CODING_AGENT_DIR/simplify.json`. */
+interface SimplifySettings {
+	/** Minimum total changed lines (added + removed) to trigger auto-simplify. */
+	minChangedLines: number;
+}
+
+/** Defaults used when the settings file is missing or malformed. */
+const DEFAULT_SETTINGS: SimplifySettings = { minChangedLines: 10 };
+
+/**
+ * Read settings from `$PI_CODING_AGENT_DIR/simplify.json`.
+ *
+ * Returns defaults when the file is missing or malformed.
+ */
+function readSettings(): SimplifySettings {
+	const configDir = process.env.PI_CODING_AGENT_DIR;
+	if (!configDir) return DEFAULT_SETTINGS;
+
+	const settingsPath = join(configDir, "simplify.json");
+	if (!existsSync(settingsPath)) return DEFAULT_SETTINGS;
+
+	try {
+		const raw = JSON.parse(readFileSync(settingsPath, "utf-8")) as Partial<SimplifySettings>;
+		return {
+			minChangedLines:
+				typeof raw.minChangedLines === "number" && raw.minChangedLines >= 0
+					? raw.minChangedLines
+					: DEFAULT_SETTINGS.minChangedLines,
+		};
+	} catch {
+		return DEFAULT_SETTINGS;
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Git helpers
 // ---------------------------------------------------------------------------
 
@@ -169,10 +207,35 @@ async function getChangedFiles(pi: ExtensionAPI): Promise<string[]> {
 	return splitLines(stagedOut);
 }
 
-/** Get all files changed since a specific commit (committed + staged + unstaged + untracked). */
-async function getChangedFilesSince(pi: ExtensionAPI, commitHash: string): Promise<string[]> {
-	const { stdout: diffOut } = await pi.exec("git", ["diff", "--name-only", commitHash]);
-	return [...splitLines(diffOut), ...await getUntrackedFiles(pi)];
+/**
+ * Count total added + removed lines for the given files.
+ *
+ * Uses `git diff --numstat` for tracked files. Untracked files (not in
+ * diff output) are counted in full via `wc -l`.
+ */
+async function countChangedLines(pi: ExtensionAPI, files: string[]): Promise<number> {
+	if (files.length === 0) return 0;
+
+	const { stdout } = await pi.exec("git", ["diff", "--numstat", "HEAD", "--", ...files]);
+	const diffedFiles = new Set<string>();
+	let total = 0;
+
+	for (const line of splitLines(stdout)) {
+		const parts = line.split("\t");
+		if (parts.length >= 3) {
+			total += (parseInt(parts[0], 10) || 0) + (parseInt(parts[1], 10) || 0);
+			diffedFiles.add(parts[2]);
+		}
+	}
+
+	const untracked = files.filter((f) => !diffedFiles.has(f));
+	if (untracked.length > 0) {
+		const { stdout: wcOut } = await pi.exec("wc", ["-l", ...untracked]);
+		const lastLine = splitLines(wcOut).at(-1) ?? "";
+		total += parseInt(lastLine.trim(), 10) || 0;
+	}
+
+	return total;
 }
 
 // ---------------------------------------------------------------------------
@@ -284,12 +347,26 @@ function buildConfirmMessage(files: string[], lang: string): string {
 	return `${count} ${label} ${noun} changed. Run /simplify?`;
 }
 
+/**
+ * Check if the agent run was aborted (user cancelled or errored).
+ *
+ * Inspects the last assistant message's `stopReason` in the agent_end event.
+ */
+function wasAborted(event: unknown): boolean {
+	const messages = (event as { messages?: unknown[] })?.messages;
+	if (!Array.isArray(messages) || messages.length === 0) return true;
+
+	const last = messages.at(-1) as { role?: string; stopReason?: string };
+	if (last?.role !== "assistant") return false;
+	return last.stopReason === "aborted" || last.stopReason === "error";
+}
+
 // ---------------------------------------------------------------------------
 // Agent turn tracking state
 // ---------------------------------------------------------------------------
 
-/** HEAD commit hash recorded at the start of the agent's turn. */
-let headSnapshot: string | null = null;
+/** Set of dirty file paths recorded at the start of the agent's turn. */
+let dirtyAtStart: Set<string> = new Set();
 
 /** Whether `/simplify` was invoked during the current agent turn. */
 let simplifyRanThisTurn = false;
@@ -307,17 +384,12 @@ let simplifyPending = false;
 
 /** Registers the `/simplify` command and agent_end auto-simplify hook. */
 export default function simplifyExtension(pi: ExtensionAPI) {
-	// ── Snapshot HEAD at turn start ─────────────────────────────────
+	// ── Snapshot dirty files at turn start ──────────────────────────
 
 	pi.on("before_agent_start", async () => {
-		headSnapshot = null;
 		simplifyRanThisTurn = simplifyPending;
 		simplifyPending = false;
-
-		const { stdout, code } = await pi.exec("git", ["rev-parse", "HEAD"]);
-		if (code === 0 && stdout.trim()) {
-			headSnapshot = stdout.trim();
-		}
+		dirtyAtStart = new Set(await getChangedFiles(pi));
 	});
 
 	// ── /simplify command ───────────────────────────────────────────
@@ -339,11 +411,13 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 
 	// ── Auto-simplify proposal after agent turn ─────────────────────
 
-	pi.on("agent_end", async (_event: unknown, ctx: ExtensionContext) => {
-		if (!ctx.hasUI || simplifyRanThisTurn || !headSnapshot) return;
+	pi.on("agent_end", async (event: unknown, ctx: ExtensionContext) => {
+		if (!ctx.hasUI || simplifyRanThisTurn) return;
+		if (wasAborted(event)) return;
 
-		const allChanged = await getChangedFilesSince(pi, headSnapshot);
-		const sourceFiles = allChanged.filter(isSupportedFile);
+		const allChanged = await getChangedFiles(pi);
+		const newlyChanged = allChanged.filter((f) => !dirtyAtStart.has(f));
+		const sourceFiles = newlyChanged.filter(isSupportedFile);
 		if (sourceFiles.length === 0) return;
 
 		const lang = detectLanguage(sourceFiles);
@@ -351,6 +425,12 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 
 		const relevantFiles = filterByLanguage(sourceFiles, lang);
 		if (relevantFiles.length === 0) return;
+
+		const { minChangedLines } = readSettings();
+		if (minChangedLines > 0) {
+			const changedLines = await countChangedLines(pi, relevantFiles);
+			if (changedLines < minChangedLines) return;
+		}
 
 		const confirmed = await timedConfirm(ctx, {
 			title: "Simplify code",
