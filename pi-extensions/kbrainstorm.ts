@@ -291,16 +291,22 @@ export default function kbrainstorm(pi: ExtensionAPI) {
 
 							if (selected) {
 								add(prefix + theme.fg("accent", `${i + 1}. ${opt.label}`));
+								if (opt.description) {
+									for (const dl of wrapTextWithAnsi(theme.fg("muted", `     ${opt.description}`), contentWidth)) {
+										add(dl);
+									}
+								}
 								// Show inline editor directly below selected option
 								for (const line of editor.render(width - 6)) {
 									add(`     ${line}`);
 								}
 							} else {
 								add(`  ${theme.fg("text", `${i + 1}. ${opt.label}`)}`);
-							}
-
-							if (opt.description && !selected) {
-								add(`     ${theme.fg("muted", opt.description)}`);
+								if (opt.description) {
+									for (const dl of wrapTextWithAnsi(theme.fg("muted", `     ${opt.description}`), contentWidth)) {
+										add(dl);
+									}
+								}
 							}
 						}
 
