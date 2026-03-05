@@ -42,7 +42,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## fix/hide-closed-tickets-status
+
+
+## feat/sandbox-state-persistence
+
+Sandbox state is now persisted per directory across sessions, with per-profile isolation so different coding profiles maintain independent settings (#23). The sandbox extension now supports `/sandbox on`, `/sandbox off`, and `/sandbox reset` commands that remember your preference for each working directory, eliminating the need to re-enable or re-disable sandbox on every restart. Additionally, the commit extension introduces robust branch-protection handling via a new `performMerge()` function that offers sequential recovery paths—admin override followed by auto-merge—when policy blocks prevent standard merging, and extracts fallback constants for improved maintainability.
+
+## [1.0.11](https://github.com/kostyay/agent-stuff/pull/22) - 2026-03-03
 
 The status bar now hides ticket status information when all tickets are closed, improving UI clarity by eliminating clutter in the status display (#22). Previously, the status would remain visible even with zero open or in-progress tickets; the fix refines the visibility logic to check for active work items instead of just total ticket count. This change reduces unnecessary status indicators while maintaining visibility for ongoing and blocked work.
 
