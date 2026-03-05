@@ -7,7 +7,7 @@
  */
 
 import { DynamicBorder } from "@mariozechner/pi-coding-agent";
-import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Container, Key, Text, matchesKey } from "@mariozechner/pi-tui";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +40,9 @@ const DEFAULT_SECONDS = 5;
  * The user can press Enter to confirm or Escape to cancel at any time.
  *
  * @example
+ * Works in both command handlers (`ExtensionCommandContext`) and event
+ * handlers (`ExtensionContext`) since it only requires `ctx.ui.custom()`.
+ *
  * ```ts
  * const ok = await timedConfirm(ctx, {
  *   title: "Merge PR",
@@ -49,7 +52,7 @@ const DEFAULT_SECONDS = 5;
  * ```
  */
 export async function timedConfirm(
-	ctx: ExtensionCommandContext,
+	ctx: ExtensionContext,
 	options: TimedConfirmOptions,
 ): Promise<boolean> {
 	const { title, message, seconds = DEFAULT_SECONDS, defaultValue = true } = options;
