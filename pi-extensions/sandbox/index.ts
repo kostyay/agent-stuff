@@ -194,6 +194,15 @@ function getDirectoryState(cwd: string): boolean | undefined {
 	return state[cwd]?.enabled;
 }
 
+/** Remove the persisted state for a directory, falling back to config defaults. */
+function clearDirectoryState(cwd: string): void {
+	const state = loadDirectoryState();
+	delete state[cwd];
+	const dir = getProfileDir();
+	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+	writeFileSync(getStatePath(), JSON.stringify(state, null, "\t"), "utf-8");
+}
+
 // ---------------------------------------------------------------------------
 // Sandboxed BashOperations
 // ---------------------------------------------------------------------------
@@ -334,6 +343,9 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 
 	// Readonly mode state — set by plan-ask extension via pi.events.
 	let readonlyActive = false;
+	// True when sandbox was inactive before readonly was requested, so we
+	// know to deactivate it again when readonly ends.
+	let sandboxActivatedForReadonly = false;
 	let lastCtx: ExtensionContext | null = null;
 
 	// Sandbox readiness — awaited by the bash tool to avoid races.
@@ -450,7 +462,7 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 	pi.events.on("readonly", (data: unknown) => {
 		const { enabled, ack } = data as { enabled: boolean; ack: () => void };
 
-		if (!sandboxActive || !lastCtx) return;
+		if (!lastCtx) return;
 
 		ack();
 
@@ -461,6 +473,9 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 		const config = loadConfig(ctx.cwd);
 
 		if (enabled) {
+			// Track if we're spinning up sandbox just for readonly
+			sandboxActivatedForReadonly = !sandboxActive;
+
 			const readonlyConfig: SandboxConfig = {
 				...config,
 				filesystem: {
@@ -475,7 +490,12 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 				}
 				return ok;
 			});
+		} else if (sandboxActivatedForReadonly) {
+			// Sandbox was off before readonly — tear it back down
+			sandboxActivatedForReadonly = false;
+			sandboxReady = deactivateSandbox(ctx).then(() => false);
 		} else {
+			// Sandbox was already on — restore normal config
 			sandboxReady = activateSandbox(config, ctx).then((ok) => {
 				if (ok) {
 					updateStatus(ctx, config, true, false);
@@ -483,13 +503,13 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 				}
 				return ok;
 			});
-			readonlyActive = false;
 		}
 	});
 
 	// ---- Cleanup ----
 	pi.on("session_shutdown", async (_event, ctx) => {
 		readonlyActive = false;
+		sandboxActivatedForReadonly = false;
 		lastCtx = null;
 		await deactivateSandbox(ctx);
 	});
@@ -542,11 +562,7 @@ export default function sandboxExtension(pi: ExtensionAPI) {
 
 			// ---- /sandbox reset ----
 			if (arg === "reset") {
-				const state = loadDirectoryState();
-				delete state[ctx.cwd];
-				const dir = getProfileDir();
-				if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-				writeFileSync(getStatePath(), JSON.stringify(state, null, "\t"), "utf-8");
+				clearDirectoryState(ctx.cwd);
 				ctx.ui.notify("Cleared remembered sandbox state for this directory. Restart to use config defaults.", "info");
 				return;
 			}
