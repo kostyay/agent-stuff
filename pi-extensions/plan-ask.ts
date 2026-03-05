@@ -162,6 +162,21 @@ export const MODE_DISPLAY: Record<Mode, ModeDisplay> = {
 	[PLAN]: { icon: "📋", label: "plan", color: "warning" },
 };
 
+// ── Temp plan persistence ────────────────────────────────────────────────
+
+/** Save plan text to a temp file and return the path. */
+async function savePlanToTemp(planText: string): Promise<string> {
+	const { writeFile, mkdir } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const dir = join(tmpdir(), "pi-plans");
+	await mkdir(dir, { recursive: true });
+	const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+	const path = join(dir, `${timestamp}-plan.md`);
+	await writeFile(path, planText, "utf-8");
+	return path;
+}
+
 // ── Extension ────────────────────────────────────────────────────────────
 
 const ENTRY_TYPE = "plan-ask-mode-state";
@@ -171,6 +186,7 @@ export default function planAskExtension(pi: ExtensionAPI) {
 	let mode: Mode = AGENT;
 	let modePrompt = "";
 	let originalTools: string[] = [];
+	let pendingPlanPath: string | null = null;
 
 	// ── Mode management ──────────────────────────────────────────────
 
@@ -281,6 +297,32 @@ export default function planAskExtension(pi: ExtensionAPI) {
 		},
 	});
 
+	// ── Internal: new-session plan implementation ────────────────────
+
+	pi.registerCommand("_plan-implement", {
+		description: "Internal: start a new session and implement the saved plan",
+		handler: async (_args, ctx) => {
+			const planPath = pendingPlanPath;
+			if (!planPath) {
+				ctx.ui.notify("No pending plan to implement.", "warning");
+				return;
+			}
+			pendingPlanPath = null;
+
+			const result = await ctx.newSession({
+				parentSession: ctx.sessionManager.getSessionFile(),
+			});
+			if (result.cancelled) {
+				ctx.ui.notify("New session cancelled.", "warning");
+				return;
+			}
+
+			pi.sendUserMessage(
+				`Read the plan at ${planPath} and implement it step by step. Follow the plan precisely.`,
+			);
+		},
+	});
+
 	// ── Shift+Tab shortcut to rotate modes ───────────────────────────
 
 	pi.registerShortcut("shift+tab", {
@@ -332,6 +374,7 @@ export default function planAskExtension(pi: ExtensionAPI) {
 			"Create tickets with /ticket-create",
 			"Save plan to file",
 			"Save plan and execute it",
+			"Clear context and implement",
 			"Continue refining (stay in plan mode)",
 			"Discard and exit plan mode",
 		]);
@@ -356,32 +399,44 @@ export default function planAskExtension(pi: ExtensionAPI) {
 			return;
 		}
 
-		// Save flow
-		const defaultPath = `docs/plans/${new Date().toISOString().slice(0, 10)}-plan.md`;
-		const savePath = await ctx.ui.input("Save plan to:", defaultPath);
+		if (action === "Clear context and implement") {
+			try {
+				pendingPlanPath = await savePlanToTemp(planText);
+				setMode(AGENT, ctx);
+				pi.sendUserMessage("/_plan-implement");
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				ctx.ui.notify(`Failed to save plan: ${msg}`, "error");
+			}
+			return;
+		}
 
-		if (savePath?.trim()) {
-			const path = savePath.trim();
+		// Save flow — handles both "Save plan to file" and "Save plan and execute it"
+		const defaultPath = `docs/plans/${new Date().toISOString().slice(0, 10)}-plan.md`;
+		const rawPath = await ctx.ui.input("Save plan to:", defaultPath);
+		const savePath = rawPath?.trim();
+
+		if (savePath) {
 			try {
 				const { writeFile, mkdir } = await import("node:fs/promises");
 				const { dirname } = await import("node:path");
-				await mkdir(dirname(path), { recursive: true });
-				await writeFile(path, planText, "utf-8");
-				ctx.ui.notify(`Plan saved to ${path}`, "info");
+				await mkdir(dirname(savePath), { recursive: true });
+				await writeFile(savePath, planText, "utf-8");
+				ctx.ui.notify(`Plan saved to ${savePath}`, "info");
 			} catch (err: unknown) {
-				const message = err instanceof Error ? err.message : String(err);
-				ctx.ui.notify(`Failed to save plan: ${message}`, "error");
+				const msg = err instanceof Error ? err.message : String(err);
+				ctx.ui.notify(`Failed to save plan: ${msg}`, "error");
 			}
 		}
 
+		setMode(AGENT, ctx);
+
 		if (action === "Save plan and execute it") {
-			setMode(AGENT, ctx);
-			const execPrompt = savePath?.trim()
-				? `Execute the plan saved at ${savePath.trim()}. Read it first, then implement it step by step.`
+			const execPrompt = savePath
+				? `Execute the plan saved at ${savePath}. Read it first, then implement it step by step.`
 				: `Execute the following plan step by step:\n\n${planText}`;
 			pi.sendUserMessage(execPrompt);
 		} else {
-			setMode(AGENT, ctx);
 			ctx.ui.notify("Plan mode exited.", "info");
 		}
 	});
