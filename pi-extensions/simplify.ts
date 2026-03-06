@@ -60,7 +60,6 @@ function skillDir(lang: string): string {
 	return `${lang}-code-simplifier`;
 }
 
-/** Extract the lowercase file extension (e.g. ".ts") from a path. */
 function fileExtension(filePath: string): string {
 	return extname(filePath).toLowerCase();
 }
@@ -115,7 +114,7 @@ function listAvailableSkills(): string[] {
 	}
 }
 
-/** Build the user message combining skill instructions, changed files, and optional extra instructions. */
+/** Build the user message combining skill instructions and changed file list. */
 function buildPrompt(skillContent: string, files: string[], extraInstructions?: string): string {
 	const fileList = files.map((f) => `- ${f}`).join("\n");
 	const parts = [
@@ -185,7 +184,6 @@ function readSettings(): SimplifySettings {
 // Git helpers
 // ---------------------------------------------------------------------------
 
-/** Split stdout into non-empty lines. */
 function splitLines(stdout: string): string[] {
 	return stdout.trim().split("\n").filter(Boolean);
 }
@@ -207,35 +205,69 @@ async function getChangedFiles(pi: ExtensionAPI): Promise<string[]> {
 	return splitLines(stagedOut);
 }
 
+/** Per-file diff stats: lines added and removed vs HEAD. */
+interface FileStats {
+	added: number;
+	removed: number;
+}
+
 /**
- * Count total added + removed lines for the given files.
+ * Snapshot per-file diff stats for all dirty files.
  *
- * Uses `git diff --numstat` for tracked files. Untracked files (not in
- * diff output) are counted in full via `wc -l`.
+ * Tracked files use `git diff --numstat HEAD`. Untracked files are
+ * counted in full via `wc -l` (all lines treated as "added").
  */
-async function countChangedLines(pi: ExtensionAPI, files: string[]): Promise<number> {
-	if (files.length === 0) return 0;
+async function snapshotFileStats(pi: ExtensionAPI): Promise<Map<string, FileStats>> {
+	const stats = new Map<string, FileStats>();
 
-	const { stdout } = await pi.exec("git", ["diff", "--numstat", "HEAD", "--", ...files]);
-	const diffedFiles = new Set<string>();
-	let total = 0;
-
+	const { stdout } = await pi.exec("git", ["diff", "--numstat", "HEAD"]);
 	for (const line of splitLines(stdout)) {
 		const parts = line.split("\t");
 		if (parts.length >= 3) {
-			total += (parseInt(parts[0], 10) || 0) + (parseInt(parts[1], 10) || 0);
-			diffedFiles.add(parts[2]);
+			stats.set(parts[2], {
+				added: parseInt(parts[0], 10) || 0,
+				removed: parseInt(parts[1], 10) || 0,
+			});
 		}
 	}
 
-	const untracked = files.filter((f) => !diffedFiles.has(f));
-	if (untracked.length > 0) {
-		const { stdout: wcOut } = await pi.exec("wc", ["-l", ...untracked]);
-		const lastLine = splitLines(wcOut).at(-1) ?? "";
-		total += parseInt(lastLine.trim(), 10) || 0;
+	const untracked = await getUntrackedFiles(pi);
+	for (const file of untracked) {
+		const { stdout: wcOut } = await pi.exec("wc", ["-l", file]);
+		const lines = parseInt(wcOut.trim(), 10) || 0;
+		stats.set(file, { added: lines, removed: 0 });
 	}
 
-	return total;
+	return stats;
+}
+
+/**
+ * Compute files modified between two snapshots, with the total changed lines per file.
+ *
+ * A file is "modified" if it appears in `after` but not `before`, or if its
+ * added/removed counts differ. The returned delta is the absolute increase
+ * in total diff size (added + removed).
+ */
+function diffSnapshots(
+	before: Map<string, FileStats>,
+	after: Map<string, FileStats>,
+): Map<string, number> {
+	const modified = new Map<string, number>();
+
+	for (const [file, afterStats] of after) {
+		const beforeStats = before.get(file);
+		if (!beforeStats) {
+			modified.set(file, afterStats.added + afterStats.removed);
+			continue;
+		}
+		if (afterStats.added !== beforeStats.added || afterStats.removed !== beforeStats.removed) {
+			const beforeTotal = beforeStats.added + beforeStats.removed;
+			const afterTotal = afterStats.added + afterStats.removed;
+			modified.set(file, Math.abs(afterTotal - beforeTotal));
+		}
+	}
+
+	return modified;
 }
 
 // ---------------------------------------------------------------------------
@@ -280,7 +312,6 @@ function parseArgs(args: string): ParsedArgs {
 // Core simplify logic
 // ---------------------------------------------------------------------------
 
-/** Notification callback type. */
 type Notify = (message: string, level: "info" | "warning" | "error") => void;
 
 /**
@@ -350,14 +381,18 @@ function buildConfirmMessage(files: string[], lang: string): string {
 /**
  * Check if the agent run was aborted (user cancelled or errored).
  *
- * Inspects the last assistant message's `stopReason` in the agent_end event.
+ * Finds the last assistant message in the agent_end event and checks
+ * its `stopReason`. Returns `false` (not aborted) when no assistant
+ * message is found — the safe default to avoid blocking proposals.
  */
 function wasAborted(event: unknown): boolean {
 	const messages = (event as { messages?: unknown[] })?.messages;
-	if (!Array.isArray(messages) || messages.length === 0) return true;
+	if (!Array.isArray(messages)) return false;
 
-	const last = messages.at(-1) as { role?: string; stopReason?: string };
-	if (last?.role !== "assistant") return false;
+	type MsgShape = { role?: string; stopReason?: string };
+	const last = (messages as MsgShape[]).findLast((m) => m?.role === "assistant");
+	if (!last) return false;
+
 	return last.stopReason === "aborted" || last.stopReason === "error";
 }
 
@@ -365,16 +400,19 @@ function wasAborted(event: unknown): boolean {
 // Agent turn tracking state
 // ---------------------------------------------------------------------------
 
-/** Set of dirty file paths recorded at the start of the agent's turn. */
-let dirtyAtStart: Set<string> = new Set();
-
-/** Whether `/simplify` was invoked during the current agent turn. */
-let simplifyRanThisTurn = false;
+/** Per-file diff stats snapshot taken at the start of the agent's turn. */
+let statsAtStart: Map<string, FileStats> = new Map();
 
 /**
- * Set by `triggerSimplify` before `sendUserMessage` so the next
- * `before_agent_start` can propagate it into `simplifyRanThisTurn`.
- * This survives the turn boundary that would otherwise reset the flag.
+ * Whether simplify has already been proposed since the last user-initiated
+ * prompt. Prevents re-proposing after the simplification run itself
+ * modifies files. Only reset when the user types a new prompt.
+ */
+let hasProposedSimplify = false;
+
+/**
+ * Set by `triggerSimplify` before `sendUserMessage` so `before_agent_start`
+ * can distinguish programmatic turns from user-initiated ones.
  */
 let simplifyPending = false;
 
@@ -387,9 +425,11 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 	// ── Snapshot dirty files at turn start ──────────────────────────
 
 	pi.on("before_agent_start", async () => {
-		simplifyRanThisTurn = simplifyPending;
+		if (!simplifyPending) {
+			hasProposedSimplify = false;
+		}
 		simplifyPending = false;
-		dirtyAtStart = new Set(await getChangedFiles(pi));
+		statsAtStart = await snapshotFileStats(pi);
 	});
 
 	// ── /simplify command ───────────────────────────────────────────
@@ -412,12 +452,14 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 	// ── Auto-simplify proposal after agent turn ─────────────────────
 
 	pi.on("agent_end", async (event: unknown, ctx: ExtensionContext) => {
-		if (!ctx.hasUI || simplifyRanThisTurn) return;
+		if (!ctx.hasUI || hasProposedSimplify) return;
 		if (wasAborted(event)) return;
 
-		const allChanged = await getChangedFiles(pi);
-		const newlyChanged = allChanged.filter((f) => !dirtyAtStart.has(f));
-		const sourceFiles = newlyChanged.filter(isSupportedFile);
+		const statsAtEnd = await snapshotFileStats(pi);
+		const modified = diffSnapshots(statsAtStart, statsAtEnd);
+		if (modified.size === 0) return;
+
+		const sourceFiles = [...modified.keys()].filter(isSupportedFile);
 		if (sourceFiles.length === 0) return;
 
 		const lang = detectLanguage(sourceFiles);
@@ -428,9 +470,14 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 
 		const { minChangedLines } = readSettings();
 		if (minChangedLines > 0) {
-			const changedLines = await countChangedLines(pi, relevantFiles);
-			if (changedLines < minChangedLines) return;
+			let totalDelta = 0;
+			for (const file of relevantFiles) {
+				totalDelta += modified.get(file) ?? 0;
+			}
+			if (totalDelta < minChangedLines) return;
 		}
+
+		hasProposedSimplify = true;
 
 		const confirmed = await timedConfirm(ctx, {
 			title: "Simplify code",
