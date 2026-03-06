@@ -50,6 +50,11 @@ All notable changes to agent-stuff are documented here.
 
 
 
+
+## fix/always-push-before-pr
+
+This release fixes a critical issue where PR creation could fail when the remote branch doesn't exist, by ensuring all commits are pushed before attempting to create a pull request (#27). The push operation now always executes unconditionally before PR creation rather than checking for unpushed commits, making it idempotent and handling edge cases like stale upstream refs after previous PR merges. Additionally, the PR creation command now explicitly specifies the branch head to avoid ambiguity in multi-branch workflows. A minor documentation correction updates the stash extension keyboard shortcut from Ctrl+S to Ctrl+Shift+S to match the actual implementation.
+
 ## feat/configurable-simplify-threshold
 
 Introduces a configurable auto-simplify threshold and improved change detection for the `/simplify` command (#26). The `/simplify` command now uses per-file diff statistics to track added/removed lines and only triggers auto-proposal when total changes exceed a configurable `minChangedLines` threshold (default: 10), providing finer control over when simplification is suggested. Additionally, two new extensions were added: `/stash` command (Ctrl+S) for temporarily saving editor drafts during quick questions, and `/whoami` command for managing git user identity within sessions—improving workflow ergonomics for context-switching scenarios.
