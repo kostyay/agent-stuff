@@ -1,12 +1,12 @@
 /**
  * Prompt Stash Extension
  *
- * Ctrl+S stashes the current editor draft so you can fire off a quick question.
+ * Ctrl+Shift+S stashes the current editor draft so you can fire off a quick question.
  * The stashed prompt auto-restores after the agent finishes responding.
  *
  * Behavior:
- * - Ctrl+S with text in editor → stash it, clear editor
- * - Ctrl+S with empty editor + stash exists → pop stash back into editor
+ * - Ctrl+Shift+S with text in editor → stash it, clear editor
+ * - Ctrl+Shift+S with empty editor + stash exists → pop stash back into editor
  * - After agent_end → auto-restore stashed text into editor
  * - New/switched session → clears stash
  *
@@ -61,7 +61,7 @@ export default function stashExtension(pi: ExtensionAPI): void {
 		clearStash(ctx);
 	}
 
-	pi.registerShortcut("ctrl+s", {
+	pi.registerShortcut("ctrl+shift+s", {
 		description: "Stash or unstash editor draft",
 		handler: async (ctx) => {
 			if (!ctx.hasUI) {
