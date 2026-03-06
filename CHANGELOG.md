@@ -48,7 +48,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/plan-context-implementation
+
+
+## feat/configurable-simplify-threshold
+
+Introduces a configurable auto-simplify threshold and improved change detection for the `/simplify` command (#26). The `/simplify` command now uses per-file diff statistics to track added/removed lines and only triggers auto-proposal when total changes exceed a configurable `minChangedLines` threshold (default: 10), providing finer control over when simplification is suggested. Additionally, two new extensions were added: `/stash` command (Ctrl+S) for temporarily saving editor drafts during quick questions, and `/whoami` command for managing git user identity within sessions—improving workflow ergonomics for context-switching scenarios.
+
+## [1.0.14](https://github.com/kostyay/agent-stuff/pull/25) - 2026-03-05
 
 Introduces a new "Clear context and implement" flow that enables users to save a plan to temporary storage, reset the conversation context, and spawn a new session to execute the plan from scratch (#25). This complements the existing plan persistence and execution features by allowing for cleaner context boundaries when implementing multi-step plans. The implementation adds temporary file management via `savePlanToTemp()` and an internal `_plan-implement` command that orchestrates session creation and plan handoff. Also refactors plan-saving logic to handle both direct file saves and context-clearing scenarios, improving code clarity and reducing duplication.
 
