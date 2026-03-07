@@ -239,7 +239,7 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 
 					// --- Line 1: badge + model + context meter (left), tokens + cost (right) ---
 					const pct = ctx.getContextUsage()?.percent ?? 0;
-					const filled = Math.round(pct / 10) || 1;
+					const filled = Math.min(10, Math.round(pct / 10) || 1);
 					const model = ctx.model?.id || "no-model";
 
 					const badge = buildProfileBadge(ctx);
