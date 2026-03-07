@@ -56,7 +56,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/auto-simplify-session-isolation
+
+
+## feat/streaming-speed-display
+
+Added a real-time streaming speed indicator to the status bar that displays throughput in bytes/second during Claude's message generation (#30). The indicator uses a 1-second sliding window to track bytes from text, thinking, and tool-call deltas, with automatic unit scaling (B/s, kB/s, MB/s) for readability. Speed updates are rendered via a dedicated interval timer that triggers UI refreshes only during active streaming, replacing the previous token count display when streams are active. The feature properly manages lifecycle hooks—clearing timers on message completion and footer disposal to prevent memory leaks.
+
+## [1.0.18](https://github.com/kostyay/agent-stuff/pull/29) - 2026-03-07
 
 Implements session isolation for auto-triggered simplifications (#29), ensuring that files queued from the `agent_end` confirmation create a new isolated session before execution rather than running in the current context. This prevents simplification work from interfering with ongoing analysis and improves context management. The implementation queues files internally and defers their processing to the next `/simplify` invocation, which detects pending auto-simplify work and establishes a fresh session with appropriate naming before proceeding.
 
