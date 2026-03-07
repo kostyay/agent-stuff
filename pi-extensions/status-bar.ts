@@ -17,6 +17,7 @@
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { Buffer } from "node:buffer";
 import { basename } from "node:path";
 
 /** Hash a string into a 32-bit unsigned integer (djb2). */
@@ -84,6 +85,13 @@ export function buildProfileBadge(ctx: ExtensionContext): { text: string; width:
 	};
 }
 
+/** Format bytes/sec as a compact string (e.g. 512B/s, 1.2kB/s). */
+export function formatBytesPerSec(bps: number): string {
+	if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)}MB/s`;
+	if (bps >= 1_000) return `${(bps / 1_000).toFixed(1)}kB/s`;
+	return `${Math.round(bps)}B/s`;
+}
+
 /** Format a token count as a compact string (e.g. 1.2k, 3.5M). */
 export function formatTokenCount(n: number): string {
 	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
@@ -123,6 +131,13 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 	const counts: Record<string, number> = {};
 	let turnCount = 0;
 	let agentActive = false;
+
+	// Real-time streaming speed (bytes/sec, 1s sliding window)
+	let windowBytes = 0;
+	let currentBytesPerSec = 0;
+	let isStreaming = false;
+	let renderTimer: ReturnType<typeof setInterval> | null = null;
+	let tuiRef: { requestRender: () => void } | null = null;
 
 	// Ticket stats (populated via pi.events from ticket extension)
 	let ticketStats: TicketStats | null = null;
@@ -188,6 +203,36 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 		diffStatsTimer = setTimeout(() => refreshDiffStats(ctx), 500);
 	}
 
+	pi.on("message_start", async (event) => {
+		if (event.message.role !== "assistant") return;
+		windowBytes = 0;
+		currentBytesPerSec = 0;
+		isStreaming = true;
+		if (tuiRef && !renderTimer) {
+			renderTimer = setInterval(() => {
+				currentBytesPerSec = windowBytes;
+				windowBytes = 0;
+				tuiRef?.requestRender();
+			}, 1000);
+		}
+	});
+
+	pi.on("message_update", async (event) => {
+		const e = event.assistantMessageEvent;
+		if (e.type === "text_delta" || e.type === "thinking_delta" || e.type === "toolcall_delta") {
+			windowBytes += Buffer.byteLength(e.delta, "utf8");
+		}
+	});
+
+	pi.on("message_end", async (event) => {
+		if (event.message.role !== "assistant") return;
+		isStreaming = false;
+		if (renderTimer) {
+			clearInterval(renderTimer);
+			renderTimer = null;
+		}
+	});
+
 	pi.on("tool_execution_end", async (event, ctx) => {
 		counts[event.toolName] = (counts[event.toolName] || 0) + 1;
 		if (MUTATING_TOOLS.has(event.toolName)) scheduleDiffRefresh(ctx);
@@ -217,10 +262,15 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 		refreshDiffStats(ctx);
 
 		ctx.ui.setFooter((tui, theme, footerData) => {
+			tuiRef = tui;
 			const unsub = footerData.onBranchChange(() => tui.requestRender());
 
 			return {
-				dispose: unsub,
+				dispose() {
+					unsub();
+					if (renderTimer) { clearInterval(renderTimer); renderTimer = null; }
+					tuiRef = null;
+				},
 				invalidate() {},
 				render(width: number): string[] {
 					let tokIn = 0;
@@ -261,10 +311,14 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 						theme.fg("dim", " ") +
 						theme.fg(ctxColor, `${Math.round(pct)}%`);
 
-					let l1Right =
-						theme.fg("success", `↑${formatTokenCount(tokIn)}`) +
-						theme.fg("dim", " ") +
-						theme.fg("accent", `↓${formatTokenCount(tokOut)}`);
+					const speedLabel = isStreaming && currentBytesPerSec === 0
+						? "…"
+						: currentBytesPerSec > 0 || isStreaming
+							? formatBytesPerSec(currentBytesPerSec)
+							: "";
+					let l1Right = speedLabel
+						? theme.fg("muted", `⏱${speedLabel}`)
+						: "";
 					if (tokCache > 0) {
 						l1Right += theme.fg("dim", " ") + theme.fg("muted", `⚡${formatTokenCount(tokCache)}`);
 					}
@@ -395,6 +449,10 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 			turnCount = 0;
 			agentActive = false;
 			diffStats = null;
+			windowBytes = 0;
+			currentBytesPerSec = 0;
+			isStreaming = false;
+			if (renderTimer) { clearInterval(renderTimer); renderTimer = null; }
 			refreshDiffStats(ctx);
 		}
 	});
