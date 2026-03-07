@@ -416,6 +416,14 @@ let hasProposedSimplify = false;
  */
 let simplifyPending = false;
 
+/**
+ * Files queued by the `agent_end` auto-simplify confirmation.
+ *
+ * When set, the next `/simplify` invocation creates a new session
+ * before running so the simplification work is isolated.
+ */
+let pendingAutoSimplifyFiles: string[] | null = null;
+
 // ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
@@ -440,11 +448,23 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 			"Pass explicit file paths to target specific files. " +
 			"Extra text that doesn't match a file extension is forwarded as additional instructions.",
 		handler: async (args, ctx) => {
+			const notify: Notify = (msg, level) => ctx.ui.notify(msg, level);
+			const autoFiles = pendingAutoSimplifyFiles;
+			pendingAutoSimplifyFiles = null;
+
+			if (autoFiles) {
+				const result = await ctx.newSession();
+				if (result.cancelled) return;
+				pi.setSessionName("Code Simplification");
+				await triggerSimplify(pi, { files: autoFiles }, notify);
+				return;
+			}
+
 			const { files, extraInstructions } = parseArgs(args);
 			await triggerSimplify(
 				pi,
 				{ files: files.length > 0 ? files : undefined, extraInstructions },
-				(msg, level) => ctx.ui.notify(msg, level),
+				notify,
 			);
 		},
 	});
@@ -488,10 +508,7 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 
 		if (!confirmed) return;
 
-		await triggerSimplify(
-			pi,
-			{ files: sourceFiles },
-			(msg, level) => ctx.ui.notify(msg, level),
-		);
+		pendingAutoSimplifyFiles = sourceFiles;
+		pi.sendUserMessage("/simplify");
 	});
 }

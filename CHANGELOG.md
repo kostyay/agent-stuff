@@ -54,7 +54,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## docs/improve-task-breakdown-guidance
+
+
+## feat/auto-simplify-session-isolation
+
+Implements session isolation for auto-triggered simplifications (#29), ensuring that files queued from the `agent_end` confirmation create a new isolated session before execution rather than running in the current context. This prevents simplification work from interfering with ongoing analysis and improves context management. The implementation queues files internally and defers their processing to the next `/simplify` invocation, which detects pending auto-simplify work and establishes a fresh session with appropriate naming before proceeding.
+
+## [1.0.17](https://github.com/kostyay/agent-stuff/pull/28) - 2026-03-07
 
 Enhanced task breakdown guidance in the ticket extension to provide agents with clearer constraints on task granularity (#28). The updated prompts now explicitly define "atomic tasks" as single, narrowly-scoped changes affecting 2-3 files or ~50 lines of code maximum, with concrete examples like individual functions, endpoints, or test files. This change addresses context window limitations by encouraging developers and AI agents to split larger tasks into smaller units, improving task completion rates and reducing incomplete work.
 
