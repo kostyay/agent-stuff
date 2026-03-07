@@ -208,6 +208,7 @@ Rules:
 - Group by theme, NOT by conventional commit type
 - Lead with the most impactful change; highlight breaking changes first
 - Filter out insignificant changes (typo fixes, internal refactoring, minor doc updates, dependency bumps unless security-related)
+- IGNORE auto-generated files entirely. Lock files (package-lock.json, yarn.lock, pnpm-lock.yaml, go.sum, Cargo.lock), generated code (*.pb.go, *_generated.*, *.gen.*), and build artifacts (dist/, *.min.js, *.min.css) are noise — do not mention them
 - Include PR# inline as (#N) if provided
 - Output ONLY the section body text — no heading, no markdown fences, no quotes
 

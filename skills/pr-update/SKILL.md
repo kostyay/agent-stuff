@@ -42,6 +42,8 @@ git diff $MERGE_BASE..HEAD
 
 Use the diff — not just commit messages — to write accurate change descriptions. Commit messages can be vague or misleading; the code tells the truth.
 
+**Ignore auto-generated files.** Lock files (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `go.sum`, `Cargo.lock`), generated code (`*.pb.go`, `*_generated.*`, `*.gen.*`), and build artifacts (`dist/`, `*.min.js`, `*.min.css`) are noise — skip them entirely when analyzing changes and writing the PR description.
+
 ### 3. Update the PR
 
 Choose a title in `<type>: <summary>` format (under 70 characters).

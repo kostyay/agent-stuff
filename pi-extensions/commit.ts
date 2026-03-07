@@ -63,6 +63,7 @@ Commit message rules:
 - scope OPTIONAL: short noun for the affected area. Omit if changes span many areas.
 - summary REQUIRED: imperative mood, lowercase start, ≤72 chars total, no trailing period.
 - No breaking-change markers, footers, or sign-offs.
+- IGNORE auto-generated files when writing the summary. Lock files (package-lock.json, yarn.lock, pnpm-lock.yaml, go.sum, Cargo.lock), generated code (*.pb.go, *_generated.*, *.gen.*), and build artifacts (dist/, *.min.js, *.min.css) are noise — focus on hand-written changes only.
 
 Branch name rules:
 - type REQUIRED: feat, fix, docs, refactor, chore, test, or perf.
@@ -86,6 +87,7 @@ Rules:
 - summary REQUIRED: imperative mood, lowercase start, ≤72 chars total, no trailing period.
 - No breaking-change markers or footers.
 - No sign-offs.
+- IGNORE auto-generated files when writing the summary. Lock files (package-lock.json, yarn.lock, pnpm-lock.yaml, go.sum, Cargo.lock), generated code (*.pb.go, *_generated.*, *.gen.*), and build artifacts (dist/, *.min.js, *.min.css) are noise — focus on hand-written changes only.
 - Output the subject line and nothing else.
 
 Diff:
@@ -110,6 +112,7 @@ Body rules:
 - If something was tested, mention it briefly
 - No boilerplate, no "## Description" headers, no template sections
 - Keep it concise — 3-8 bullets typically
+- IGNORE auto-generated files entirely. Lock files (package-lock.json, yarn.lock, pnpm-lock.yaml, go.sum, Cargo.lock), generated code (*.pb.go, *_generated.*, *.gen.*), and build artifacts (dist/, *.min.js, *.min.css) are noise — do not mention them
 
 If an existing description is provided, refine and update it rather than writing from scratch. Add new changes, remove outdated items, improve clarity.
 
