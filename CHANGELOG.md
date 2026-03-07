@@ -58,7 +58,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/streaming-speed-display
+
+
+## docs/auto-generated-file-filtering
+
+Updated changelog writing rules and commit guidance to exclude auto-generated files from summaries and descriptions (#31). The changelog writer, commit message guidelines, and PR update skill now consistently ignore lock files (package-lock.json, yarn.lock, pnpm-lock.yaml, go.sum, Cargo.lock), generated code (*.pb.go, *_generated.*, *.gen.*), and build artifacts (dist/, *.min.js, *.min.css) to reduce noise and keep focus on meaningful hand-written changes. This ensures that changelog entries and commit descriptions accurately reflect actual development work rather than dependency or build system artifacts.
+
+## [1.0.19](https://github.com/kostyay/agent-stuff/pull/30) - 2026-03-07
 
 Added a real-time streaming speed indicator to the status bar that displays throughput in bytes/second during Claude's message generation (#30). The indicator uses a 1-second sliding window to track bytes from text, thinking, and tool-call deltas, with automatic unit scaling (B/s, kB/s, MB/s) for readability. Speed updates are rendered via a dedicated interval timer that triggers UI refreshes only during active streaming, replacing the previous token count display when streams are active. The feature properly manages lifecycle hooks—clearing timers on message completion and footer disposal to prevent memory leaks.
 
