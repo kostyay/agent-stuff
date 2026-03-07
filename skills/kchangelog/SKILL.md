@@ -71,6 +71,7 @@ gh pr list --head "$BRANCH" --state all --limit 1 --json number,title,body
 - Include PR# inline as `(#78)` if PR exists
 - Lead with the most impactful change; highlight breaking changes first
 - Filter out insignificant changes (typo fixes, internal refactoring, minor doc updates, dependency bumps unless security-related)
+- IGNORE auto-generated files entirely — lock files (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `go.sum`, `Cargo.lock`), generated code (`*.pb.go`, `*_generated.*`, `*.gen.*`), and build artifacts (`dist/`, `*.min.js`, `*.min.css`) are noise and must not appear in the changelog
 
 **Good vs. Bad examples:**
 - ✅ `Fixed an issue with the TypeScript SDK which caused an incorrect config for CJS.`
