@@ -1166,7 +1166,10 @@ export default function ticketExtension(pi: ExtensionAPI) {
 				"Do not proceed until I confirm you understand correctly.\n\n" +
 				"**Step 2: Plan** — Present a proposed breakdown:\n" +
 				"- One epic with a clear description\n" +
-				"- Atomic tasks (each completable in one session)\n" +
+				"- Tasks broken down as small as possible — each task should be a single, " +
+				"narrowly-scoped change (e.g. one function, one endpoint, one test file, one config change). " +
+				"If a task touches more than 2-3 files or takes more than ~50 lines of code, split it further. " +
+				"Prefer many tiny tasks over fewer large ones — agents run out of context on big tasks.\n" +
 				"- Dependencies between tasks\n" +
 				"- Priority for each task (0=critical, 1=high, 2=normal, 3=low)\n" +
 				"- For each task, draft: description, acceptance criteria, and test criteria\n\n" +
