@@ -66,6 +66,7 @@ function skillDir(lang: string): string {
 	return `${lang}-code-simplifier`;
 }
 
+/** Lowercase file extension (e.g. `.ts`). */
 function fileExtension(filePath: string): string {
 	return extname(filePath).toLowerCase();
 }
@@ -256,6 +257,7 @@ function saveHashes(hashes: Map<string, string>): void {
 // Git helpers
 // ---------------------------------------------------------------------------
 
+/** Split command output into non-empty lines. */
 function splitLines(stdout: string): string[] {
 	return stdout.trim().split("\n").filter(Boolean);
 }
@@ -441,13 +443,8 @@ function buildConfirmMessage(files: string[], lang: string): string {
 	const label = lang.toUpperCase();
 	const count = files.length;
 	const noun = count === 1 ? "file" : "files";
-
-	if (count <= 2) {
-		const names = files.join(", ");
-		return `${count} ${label} ${noun} changed: ${names}. Run /simplify?`;
-	}
-
-	return `${count} ${label} ${noun} changed. Run /simplify?`;
+	const detail = count <= 2 ? `: ${files.join(", ")}` : "";
+	return `${count} ${label} ${noun} changed${detail}. Run /simplify?`;
 }
 
 /**
@@ -577,10 +574,8 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 
 		// Skip files whose content hasn't changed since last simplification.
 		const unsimplified = relevantFiles.filter((f) => {
-			const currentHash = hashFile(f);
-			if (!currentHash) return false;
-			const storedHash = simplifiedHashes.get(f);
-			return !storedHash || currentHash !== storedHash;
+			const hash = hashFile(f);
+			return hash !== null && hash !== simplifiedHashes.get(f);
 		});
 		if (unsimplified.length === 0) return;
 
