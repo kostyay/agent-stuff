@@ -300,10 +300,17 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 					const ctxColor: "success" | "warning" | "error" =
 						pct >= 80 ? "error" : pct >= 50 ? "warning" : "success";
 
+					const thinkingLevel = pi.getThinkingLevel();
+					const thinkingLabel = ctx.model?.reasoning && thinkingLevel !== "off"
+						? theme.fg("muted", ` 🧠${thinkingLevel}`)
+						: "";
+
 					const l1Left =
 						badge.text +
 						statusIcon +
-						theme.fg("dim", `${model} `) +
+						theme.fg("dim", `${model}`) +
+						thinkingLabel +
+						theme.fg("dim", " ") +
 						theme.fg("warning", "[") +
 						theme.fg(ctxColor, "#".repeat(filled)) +
 						theme.fg("dim", "-".repeat(10 - filled)) +
