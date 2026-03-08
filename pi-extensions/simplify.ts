@@ -10,7 +10,9 @@
  *
  * Hooks into `agent_end` to propose running `/simplify` when source files
  * were modified during the agent's turn. Shows a timed confirmation that
- * auto-accepts after 5 seconds.
+ * auto-accepts after 5 seconds. Files are only proposed once — after
+ * simplification their content hashes are persisted and checked before
+ * any subsequent proposal.
  *
  * To add a new language:
  *   1. Create `skills/<lang>-code-simplifier/SKILL.md`
@@ -18,7 +20,8 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -142,6 +145,16 @@ function filterByLanguage(files: string[], lang: string): string[] {
 	return files.filter((f) => FILE_EXTENSIONS[fileExtension(f)] === lang);
 }
 
+/** SHA-256 hash of a file's content. Returns null if the file can't be read. */
+function hashFile(filePath: string): string | null {
+	try {
+		const content = readFileSync(filePath);
+		return createHash("sha256").update(content).digest("hex");
+	} catch {
+		return null;
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
@@ -178,6 +191,56 @@ function readSettings(): SimplifySettings {
 	} catch {
 		return DEFAULT_SETTINGS;
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Persisted simplification hashes
+// ---------------------------------------------------------------------------
+
+/** Keyed by cwd so different projects don't collide. */
+type HashStore = Record<string, Record<string, string>>;
+
+/** Resolve the path to the hash store file. Returns null when unconfigured. */
+function hashStorePath(): string | null {
+	const configDir = process.env.PI_CODING_AGENT_DIR;
+	if (!configDir) return null;
+	return join(configDir, "simplify-hashes.json");
+}
+
+/** Load persisted hashes for the current working directory. */
+function loadHashes(): Map<string, string> {
+	const path = hashStorePath();
+	if (!path || !existsSync(path)) return new Map();
+
+	try {
+		const store = JSON.parse(readFileSync(path, "utf-8")) as HashStore;
+		const project = store[process.cwd()];
+		if (!project || typeof project !== "object") return new Map();
+		return new Map(Object.entries(project));
+	} catch {
+		return new Map();
+	}
+}
+
+/** Persist hashes for the current working directory. */
+function saveHashes(hashes: Map<string, string>): void {
+	const path = hashStorePath();
+	if (!path) return;
+
+	let store: HashStore = {};
+	try {
+		if (existsSync(path)) {
+			store = JSON.parse(readFileSync(path, "utf-8")) as HashStore;
+		}
+	} catch {
+		store = {};
+	}
+
+	store[process.cwd()] = Object.fromEntries(hashes);
+
+	const dir = dirname(path);
+	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+	writeFileSync(path, JSON.stringify(store, null, "\t"), "utf-8");
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +418,7 @@ async function triggerSimplify(
 	const relevantFiles = filterByLanguage(files, lang);
 	notify(`Simplifying ${relevantFiles.length} ${lang.toUpperCase()} file(s)…`, "info");
 
-	simplifyPending = true;
+	pendingSimplifyFiles = relevantFiles;
 	pi.sendUserMessage(buildPrompt(skillContent, relevantFiles, options.extraInstructions));
 	return true;
 }
@@ -404,17 +467,22 @@ function wasAborted(event: unknown): boolean {
 let statsAtStart: Map<string, FileStats> = new Map();
 
 /**
- * Whether simplify has already been proposed since the last user-initiated
- * prompt. Prevents re-proposing after the simplification run itself
- * modifies files. Only reset when the user types a new prompt.
+ * Content hashes of files after their last simplification pass.
+ *
+ * Loaded from `$PI_CODING_AGENT_DIR/simplify-hashes.json` on startup,
+ * updated and persisted after each simplification run. Keyed by relative
+ * file path so proposals are suppressed until the file actually changes.
  */
-let hasProposedSimplify = false;
+const simplifiedHashes: Map<string, string> = loadHashes();
 
 /**
- * Set by `triggerSimplify` before `sendUserMessage` so `before_agent_start`
- * can distinguish programmatic turns from user-initiated ones.
+ * Files being simplified in the current agent turn.
+ *
+ * Set by `triggerSimplify` before `sendUserMessage`. When `agent_end`
+ * sees this is non-null, it hashes the files, persists them, and skips
+ * the proposal.
  */
-let simplifyPending = false;
+let pendingSimplifyFiles: string[] | null = null;
 
 /**
  * Files queued by the `agent_end` auto-simplify confirmation.
@@ -433,10 +501,6 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 	// ── Snapshot dirty files at turn start ──────────────────────────
 
 	pi.on("before_agent_start", async () => {
-		if (!simplifyPending) {
-			hasProposedSimplify = false;
-		}
-		simplifyPending = false;
 		statsAtStart = await snapshotFileStats(pi);
 	});
 
@@ -472,7 +536,18 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 	// ── Auto-simplify proposal after agent turn ─────────────────────
 
 	pi.on("agent_end", async (event: unknown, ctx: ExtensionContext) => {
-		if (!ctx.hasUI || hasProposedSimplify) return;
+		// After a simplify turn, hash the output files and persist.
+		if (pendingSimplifyFiles) {
+			for (const file of pendingSimplifyFiles) {
+				const hash = hashFile(file);
+				if (hash) simplifiedHashes.set(file, hash);
+			}
+			pendingSimplifyFiles = null;
+			saveHashes(simplifiedHashes);
+			return;
+		}
+
+		if (!ctx.hasUI) return;
 		if (wasAborted(event)) return;
 
 		const statsAtEnd = await snapshotFileStats(pi);
@@ -488,27 +563,34 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 		const relevantFiles = filterByLanguage(sourceFiles, lang);
 		if (relevantFiles.length === 0) return;
 
+		// Skip files whose content hasn't changed since last simplification.
+		const unsimplified = relevantFiles.filter((f) => {
+			const currentHash = hashFile(f);
+			if (!currentHash) return false;
+			const storedHash = simplifiedHashes.get(f);
+			return !storedHash || currentHash !== storedHash;
+		});
+		if (unsimplified.length === 0) return;
+
 		const { minChangedLines } = readSettings();
 		if (minChangedLines > 0) {
 			let totalDelta = 0;
-			for (const file of relevantFiles) {
+			for (const file of unsimplified) {
 				totalDelta += modified.get(file) ?? 0;
 			}
 			if (totalDelta < minChangedLines) return;
 		}
 
-		hasProposedSimplify = true;
-
 		const confirmed = await timedConfirm(ctx, {
 			title: "Simplify code",
-			message: buildConfirmMessage(relevantFiles, lang),
+			message: buildConfirmMessage(unsimplified, lang),
 			seconds: 5,
 			defaultValue: true,
 		});
 
 		if (!confirmed) return;
 
-		pendingAutoSimplifyFiles = sourceFiles;
+		pendingAutoSimplifyFiles = unsimplified;
 		pi.sendUserMessage("/simplify");
 	});
 }
