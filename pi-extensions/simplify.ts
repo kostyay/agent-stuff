@@ -14,6 +14,9 @@
  * simplification their content hashes are persisted and checked before
  * any subsequent proposal.
  *
+ * Auto-simplify is **disabled by default**. Enable it by setting
+ * `"autoSimplify": true` in `$PI_CODING_AGENT_DIR/simplify.json`.
+ *
  * To add a new language:
  *   1. Create `skills/<lang>-code-simplifier/SKILL.md`
  *   2. Add one entry to FILE_EXTENSIONS below
@@ -161,12 +164,14 @@ function hashFile(filePath: string): string | null {
 
 /** Extension settings persisted in `$PI_CODING_AGENT_DIR/simplify.json`. */
 interface SimplifySettings {
+	/** Whether to auto-propose simplification after agent turns. Disabled by default. */
+	autoSimplify: boolean;
 	/** Minimum total changed lines (added + removed) to trigger auto-simplify. */
 	minChangedLines: number;
 }
 
 /** Defaults used when the settings file is missing or malformed. */
-const DEFAULT_SETTINGS: SimplifySettings = { minChangedLines: 10 };
+const DEFAULT_SETTINGS: SimplifySettings = { autoSimplify: false, minChangedLines: 10 };
 
 /**
  * Read settings from `$PI_CODING_AGENT_DIR/simplify.json`.
@@ -183,6 +188,10 @@ function readSettings(): SimplifySettings {
 	try {
 		const raw = JSON.parse(readFileSync(settingsPath, "utf-8")) as Partial<SimplifySettings>;
 		return {
+			autoSimplify:
+				typeof raw.autoSimplify === "boolean"
+					? raw.autoSimplify
+					: DEFAULT_SETTINGS.autoSimplify,
 			minChangedLines:
 				typeof raw.minChangedLines === "number" && raw.minChangedLines >= 0
 					? raw.minChangedLines
@@ -547,6 +556,9 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 			return;
 		}
 
+		const { autoSimplify, minChangedLines } = readSettings();
+		if (!autoSimplify) return;
+
 		if (!ctx.hasUI) return;
 		if (wasAborted(event)) return;
 
@@ -572,7 +584,6 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 		});
 		if (unsimplified.length === 0) return;
 
-		const { minChangedLines } = readSettings();
 		if (minChangedLines > 0) {
 			let totalDelta = 0;
 			for (const file of unsimplified) {
