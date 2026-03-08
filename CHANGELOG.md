@@ -62,7 +62,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/persist-simplification-hashes
+
+
+## feat/add-thinking-level-indicator
+
+Adds a thinking level indicator to the status bar display when reasoning models are active, showing Claude's reasoning depth at a glance (#33). Introduces a new `autoSimplify` setting (disabled by default) to control whether code simplification proposals are automatically generated after agent turns, giving users finer control over the extension's behavior. Refactors hash comparison logic in the simplify extension for improved clarity and performance.
+
+## [1.0.21](https://github.com/kostyay/agent-stuff/pull/32) - 2026-03-08
 
 The simplify extension now persists content hashes of simplified files to prevent repeated simplification proposals (#32). After each simplification run, file hashes are stored in `$PI_CODING_AGENT_DIR/simplify-hashes.json` and checked before proposing future simplifications, ensuring proposals only appear when file content actually changes. This eliminates redundant suggestions that occurred when the simplification tool itself modified files, improving the user experience by reducing unnecessary prompts while maintaining the ability to re-simplify genuinely modified code.
 

@@ -14,6 +14,9 @@
  * simplification their content hashes are persisted and checked before
  * any subsequent proposal.
  *
+ * Auto-simplify is **disabled by default**. Enable it by setting
+ * `"autoSimplify": true` in `$PI_CODING_AGENT_DIR/simplify.json`.
+ *
  * To add a new language:
  *   1. Create `skills/<lang>-code-simplifier/SKILL.md`
  *   2. Add one entry to FILE_EXTENSIONS below
@@ -63,6 +66,7 @@ function skillDir(lang: string): string {
 	return `${lang}-code-simplifier`;
 }
 
+/** Lowercase file extension (e.g. `.ts`). */
 function fileExtension(filePath: string): string {
 	return extname(filePath).toLowerCase();
 }
@@ -161,12 +165,14 @@ function hashFile(filePath: string): string | null {
 
 /** Extension settings persisted in `$PI_CODING_AGENT_DIR/simplify.json`. */
 interface SimplifySettings {
+	/** Whether to auto-propose simplification after agent turns. Disabled by default. */
+	autoSimplify: boolean;
 	/** Minimum total changed lines (added + removed) to trigger auto-simplify. */
 	minChangedLines: number;
 }
 
 /** Defaults used when the settings file is missing or malformed. */
-const DEFAULT_SETTINGS: SimplifySettings = { minChangedLines: 10 };
+const DEFAULT_SETTINGS: SimplifySettings = { autoSimplify: false, minChangedLines: 10 };
 
 /**
  * Read settings from `$PI_CODING_AGENT_DIR/simplify.json`.
@@ -183,6 +189,10 @@ function readSettings(): SimplifySettings {
 	try {
 		const raw = JSON.parse(readFileSync(settingsPath, "utf-8")) as Partial<SimplifySettings>;
 		return {
+			autoSimplify:
+				typeof raw.autoSimplify === "boolean"
+					? raw.autoSimplify
+					: DEFAULT_SETTINGS.autoSimplify,
 			minChangedLines:
 				typeof raw.minChangedLines === "number" && raw.minChangedLines >= 0
 					? raw.minChangedLines
@@ -247,6 +257,7 @@ function saveHashes(hashes: Map<string, string>): void {
 // Git helpers
 // ---------------------------------------------------------------------------
 
+/** Split command output into non-empty lines. */
 function splitLines(stdout: string): string[] {
 	return stdout.trim().split("\n").filter(Boolean);
 }
@@ -432,13 +443,8 @@ function buildConfirmMessage(files: string[], lang: string): string {
 	const label = lang.toUpperCase();
 	const count = files.length;
 	const noun = count === 1 ? "file" : "files";
-
-	if (count <= 2) {
-		const names = files.join(", ");
-		return `${count} ${label} ${noun} changed: ${names}. Run /simplify?`;
-	}
-
-	return `${count} ${label} ${noun} changed. Run /simplify?`;
+	const detail = count <= 2 ? `: ${files.join(", ")}` : "";
+	return `${count} ${label} ${noun} changed${detail}. Run /simplify?`;
 }
 
 /**
@@ -547,6 +553,9 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 			return;
 		}
 
+		const { autoSimplify, minChangedLines } = readSettings();
+		if (!autoSimplify) return;
+
 		if (!ctx.hasUI) return;
 		if (wasAborted(event)) return;
 
@@ -565,14 +574,11 @@ export default function simplifyExtension(pi: ExtensionAPI) {
 
 		// Skip files whose content hasn't changed since last simplification.
 		const unsimplified = relevantFiles.filter((f) => {
-			const currentHash = hashFile(f);
-			if (!currentHash) return false;
-			const storedHash = simplifiedHashes.get(f);
-			return !storedHash || currentHash !== storedHash;
+			const hash = hashFile(f);
+			return hash !== null && hash !== simplifiedHashes.get(f);
 		});
 		if (unsimplified.length === 0) return;
 
-		const { minChangedLines } = readSettings();
 		if (minChangedLines > 0) {
 			let totalDelta = 0;
 			for (const file of unsimplified) {
