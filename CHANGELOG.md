@@ -60,7 +60,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## docs/auto-generated-file-filtering
+
+
+## feat/persist-simplification-hashes
+
+The simplify extension now persists content hashes of simplified files to prevent repeated simplification proposals (#32). After each simplification run, file hashes are stored in `$PI_CODING_AGENT_DIR/simplify-hashes.json` and checked before proposing future simplifications, ensuring proposals only appear when file content actually changes. This eliminates redundant suggestions that occurred when the simplification tool itself modified files, improving the user experience by reducing unnecessary prompts while maintaining the ability to re-simplify genuinely modified code.
+
+## [1.0.20](https://github.com/kostyay/agent-stuff/pull/31) - 2026-03-07
 
 Updated changelog writing rules and commit guidance to exclude auto-generated files from summaries and descriptions (#31). The changelog writer, commit message guidelines, and PR update skill now consistently ignore lock files (package-lock.json, yarn.lock, pnpm-lock.yaml, go.sum, Cargo.lock), generated code (*.pb.go, *_generated.*, *.gen.*), and build artifacts (dist/, *.min.js, *.min.css) to reduce noise and keep focus on meaningful hand-written changes. This ensures that changelog entries and commit descriptions accurately reflect actual development work rather than dependency or build system artifacts.
 
