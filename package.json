@@ -20,7 +20,8 @@
   ],
   "pi": {
     "extensions": [
-      "./pi-extensions"
+      "./pi-extensions",
+      "!./pi-extensions/sandbox"
     ],
     "skills": [
       "./skills"
