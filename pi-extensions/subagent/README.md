@@ -65,16 +65,12 @@ subagent/
 ├── formatting.ts          # Token/usage formatting, tool call display
 ├── tui-helpers.ts         # Bordered rows, fuzzy search, color assignment
 ├── utils.ts               # Pure helpers (concurrency, parsing, session dirs)
-├── agents/                # Bundled agent definitions
-│   ├── scout.md           # Fast recon, returns compressed context
-│   ├── planner.md         # Creates implementation plans
-│   ├── reviewer.md        # Code review
-│   ├── worker.md          # General-purpose (full capabilities)
-│   └── code.md            # Code-focused agent
-└── prompts/               # Workflow presets (prompt templates)
-    ├── implement.md       # scout → planner → worker
-    ├── scout-and-plan.md  # scout → planner (no implementation)
-    └── implement-and-review.md  # worker → reviewer → worker
+└── agents/                # Bundled agent definitions
+    ├── scout.md           # Fast recon, returns compressed context
+    ├── planner.md         # Creates implementation plans
+    ├── reviewer.md        # Code review
+    ├── worker.md          # General-purpose (full capabilities)
+    └── code.md            # Code-focused agent
 ```
 
 ### Shared Library
@@ -126,13 +122,6 @@ Use a chain: first have scout find the read tool, then have planner suggest impr
 ### Session continuation
 ```
 Continue the scout session (session ID: scout-1710020542123) and also check the middleware
-```
-
-### Workflow prompts
-```
-/implement add Redis caching to the session store
-/scout-and-plan refactor auth to support OAuth
-/implement-and-review add input validation to API endpoints
 ```
 
 ## Commands
