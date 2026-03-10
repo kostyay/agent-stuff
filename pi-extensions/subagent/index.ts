@@ -50,6 +50,7 @@ import type {
 } from "./types.js";
 import {
 	aggregateUsage,
+	appendOutputPaths,
 	ensureSessionDir,
 	getDisplayItems,
 	getErrorMessage,
@@ -153,6 +154,8 @@ export default function subagentExtension(pi: ExtensionAPI) {
 	let activeTeam: string | null = null;
 	let teams: TeamConfig = {};
 	let baseCwd = process.cwd();
+	let dashboardAutoClearTimer: ReturnType<typeof setTimeout> | null = null;
+	const DASHBOARD_AUTO_CLEAR_MS = 10_000;
 
 	// ── Control Channel ──────────────────────────
 
@@ -249,6 +252,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		step?: number,
 		model?: string,
 	): { runId: number; onProgress: (p: AgentProgress) => void; onRawEvent: (event: Record<string, unknown>) => void } {
+		cancelDashboardAutoClear();
 		const runId = nextRunId++;
 		const state: RunState = {
 			id: runId,
@@ -340,6 +344,25 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		return { runId, onProgress, onRawEvent };
 	}
 
+	/** Cancel any pending dashboard auto-clear timer. */
+	function cancelDashboardAutoClear(): void {
+		if (dashboardAutoClearTimer) {
+			clearTimeout(dashboardAutoClearTimer);
+			dashboardAutoClearTimer = null;
+		}
+	}
+
+	/** Schedule dashboard auto-clear if all tracked agents are finished. */
+	function scheduleDashboardAutoClear(): void {
+		cancelDashboardAutoClear();
+		const allDone = Array.from(runStates.values()).every((s) => s.status !== "running");
+		if (!allDone) return;
+		dashboardAutoClearTimer = setTimeout(() => {
+			dashboardAutoClearTimer = null;
+			clearDashboard();
+		}, DASHBOARD_AUTO_CLEAR_MS);
+	}
+
 	/** Mark a tracked agent as completed and update the dashboard. */
 	function completeTrackedAgent(runId: number, result: SingleResult): void {
 		const state = runStates.get(runId);
@@ -348,10 +371,12 @@ export default function subagentExtension(pi: ExtensionAPI) {
 			: result.exitCode === 0 ? "done" : "error";
 		state.model = result.model;
 		updateDashboard();
+		scheduleDashboardAutoClear();
 	}
 
 	/** Remove all tracked agents from the dashboard. */
 	function clearDashboard(): void {
+		cancelDashboardAutoClear();
 		runStates.clear();
 		if (widgetCtx) {
 			widgetCtx.ui.setWidget(DASHBOARD_WIDGET_KEY, undefined);
@@ -455,15 +480,17 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		session.turnCount++;
 		completeTrackedAgent(runId, result);
 
+		const logFooter = (text: string) => appendOutputPaths(text, [result], sessions);
+
 		if (isAgentError(result)) {
 			return {
-				content: [{ type: "text" as const, text: `Session continue failed: ${getErrorMessage(result)}` }],
+				content: [{ type: "text" as const, text: logFooter(`Session continue failed: ${getErrorMessage(result)}`) }],
 				details: details([result]),
 				isError: true,
 			};
 		}
 		return {
-			content: [{ type: "text" as const, text: getFinalOutput(result.messages) || "(no output)" }],
+			content: [{ type: "text" as const, text: logFooter(getFinalOutput(result.messages) || "(no output)") }],
 			details: details([result]),
 		};
 	}
@@ -481,6 +508,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
 			const step = chain[i];
 			const taskWithContext = step.task.replace(/\{previous\}/g, previousOutput);
 			const chainAgent = args.agents.find((a) => a.name === step.agent);
+			const session = createSession(step.agent, chainAgent?.source ?? "user");
 			const { runId, onProgress, onRawEvent } = trackAgent(
 				step.agent, taskWithContext, "chain", i + 1, args.currentModelId ?? chainAgent?.model,
 			);
@@ -502,21 +530,26 @@ export default function subagentExtension(pi: ExtensionAPI) {
 				task: taskWithContext, cwd: step.cwd, step: i + 1, signal: args.signal,
 				onUpdate: chainUpdate, makeDetails: details, onProgress, onRawEvent,
 				modelOverride: args.currentModelId, extraEnv: controlChannel.childEnv(runId),
+				sessionFile: session.sessionFile,
 			});
+			result.sessionId = session.id;
 			results.push(result);
 			completeTrackedAgent(runId, result);
 
 			if (isAgentError(result)) {
+				const msg = `Chain stopped at step ${i + 1} (${step.agent}): ${getErrorMessage(result)}`;
 				return {
-					content: [{ type: "text" as const, text: `Chain stopped at step ${i + 1} (${step.agent}): ${getErrorMessage(result)}` }],
+					content: [{ type: "text" as const, text: appendOutputPaths(msg, results, sessions) }],
 					details: details(results),
 					isError: true,
 				};
 			}
 			previousOutput = getFinalOutput(result.messages);
 		}
+
+		const lastOutput = getFinalOutput(results[results.length - 1].messages) || "(no output)";
 		return {
-			content: [{ type: "text" as const, text: getFinalOutput(results[results.length - 1].messages) || "(no output)" }],
+			content: [{ type: "text" as const, text: appendOutputPaths(lastOutput, results, sessions) }],
 			details: details(results),
 		};
 	}
@@ -550,6 +583,12 @@ export default function subagentExtension(pi: ExtensionAPI) {
 			});
 		};
 
+		// Pre-create sessions for each task so JSONL logs are captured
+		const taskSessions = tasks.map((t) => {
+			const agent = args.agents.find((a) => a.name === t.agent);
+			return createSession(t.agent, agent?.source ?? "user");
+		});
+
 		const results = await mapWithConcurrencyLimit(tasks, MAX_CONCURRENCY, async (t, index) => {
 			const parallelAgent = args.agents.find((a) => a.name === t.agent);
 			const { runId, onProgress, onRawEvent } = trackAgent(
@@ -567,7 +606,9 @@ export default function subagentExtension(pi: ExtensionAPI) {
 				},
 				makeDetails: details, onProgress, onRawEvent,
 				modelOverride: args.currentModelId, extraEnv: controlChannel.childEnv(runId),
+				sessionFile: taskSessions[index].sessionFile,
 			});
+			result.sessionId = taskSessions[index].id;
 			allResults[index] = result;
 			completeTrackedAgent(runId, result);
 			emitUpdate();
@@ -580,8 +621,9 @@ export default function subagentExtension(pi: ExtensionAPI) {
 			const preview = output.slice(0, 100) + (output.length > 100 ? "..." : "");
 			return `[${r.agent}] ${r.exitCode === 0 ? "completed" : "failed"}: ${preview || "(no output)"}`;
 		});
+		const summary = `Parallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}`;
 		return {
-			content: [{ type: "text" as const, text: `Parallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n")}` }],
+			content: [{ type: "text" as const, text: appendOutputPaths(summary, results, sessions) }],
 			details: details(results),
 		};
 	}
@@ -610,15 +652,17 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		result.sessionId = session.id;
 		completeTrackedAgent(runId, result);
 
+		const logFooter = (text: string) => appendOutputPaths(text, [result], sessions);
+
 		if (isAgentError(result)) {
 			return {
-				content: [{ type: "text" as const, text: `Agent ${result.stopReason || "failed"}: ${getErrorMessage(result)}` }],
+				content: [{ type: "text" as const, text: logFooter(`Agent ${result.stopReason || "failed"}: ${getErrorMessage(result)}`) }],
 				details: details([result]),
 				isError: true,
 			};
 		}
 		return {
-			content: [{ type: "text" as const, text: getFinalOutput(result.messages) || "(no output)" }],
+			content: [{ type: "text" as const, text: logFooter(getFinalOutput(result.messages) || "(no output)") }],
 			details: details([result]),
 		};
 	}
@@ -1384,6 +1428,32 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		clearDashboard();
 		nextRunId = 1;
 		activeTeam = null;
+	});
+
+	// ── Subagent usage policy ─────────────────────────────────────
+	// Prevent the LLM from delegating trivial tasks to subagents.
+
+	const SUBAGENT_POLICY = [
+		"Subagent usage policy:",
+		"NEVER use the subagent tool for operations you can perform directly with built-in tools.",
+		"Subagents spawn a separate process with startup overhead and a separate context window — they are expensive.",
+		"",
+		"Don't delegate:",
+		"- File reads (use read tool directly, even for multiple files)",
+		"- Search/grep (use bash with grep/rg/find)",
+		"- Listing files or directories",
+		"- Any deterministic, one-shot operation with a predictable outcome",
+		"",
+		"Do delegate:",
+		"- Tasks requiring independent multi-step reasoning (code review, architecture analysis)",
+		"- Work that benefits from isolated context (parallel feature implementation)",
+		"- Specialist agent capabilities the parent agent lacks",
+	].join("\n");
+
+	pi.on("before_agent_start", async (event) => {
+		return {
+			systemPrompt: event.systemPrompt + "\n\n" + SUBAGENT_POLICY,
+		};
 	});
 
 	pi.on("session_start", async (_event, ctx) => {

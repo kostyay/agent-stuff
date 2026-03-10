@@ -11,7 +11,7 @@ import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { DisplayItem, ParsedSegment, SingleResult, UsageStats } from "./types.js";
+import type { DisplayItem, ParsedSegment, SessionRecord, SingleResult, UsageStats } from "./types.js";
 
 /** Resolve session directory using the same env var as pi core (PI_CODING_AGENT_DIR). */
 export function getSessionDir(): string {
@@ -81,6 +81,23 @@ export function getDisplayItems(messages: Message[]): DisplayItem[] {
 		}
 	}
 	return items;
+}
+
+/** Append agent output JSONL paths to a result string so the parent can read full details. */
+export function appendOutputPaths(
+	text: string,
+	results: SingleResult[],
+	sessions: Map<string, SessionRecord>,
+): string {
+	const entries = results
+		.filter((r) => r.sessionId && sessions.has(r.sessionId))
+		.map((r) => ({ agent: r.agent, file: sessions.get(r.sessionId!)!.sessionFile }));
+	if (entries.length === 0) return text;
+	if (entries.length === 1) {
+		return `${text}\n\nAgent output log (JSONL): ${entries[0].file}`;
+	}
+	const lines = entries.map((e) => `  ${e.agent}: ${e.file}`);
+	return `${text}\n\nAgent output logs (JSONL):\n${lines.join("\n")}`;
 }
 
 /** Run async tasks over an array with a bounded number of concurrent workers. */
