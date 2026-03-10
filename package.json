@@ -23,6 +23,9 @@
       "./pi-extensions",
       "!./pi-extensions/sandbox"
     ],
+    "prompts": [
+      "./pi-extensions/subagent/prompts"
+    ],
     "skills": [
       "./skills"
     ],

@@ -11,6 +11,7 @@ export default function clearExtension(pi: ExtensionAPI) {
 	pi.registerCommand("clear", {
 		description: "Start a new session (alias for /new)",
 		handler: async (_args, ctx) => {
+			pi.events.emit("session:clear", {});
 			await ctx.newSession();
 		},
 	});
