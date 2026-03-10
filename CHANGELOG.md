@@ -64,7 +64,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/add-thinking-level-indicator
+
+
+## feat/claude-import-subagent
+
+Introduces a new Claude import extension with a complete multi-agent subagent system (#35). The subagent framework enables orchestration of specialized agents (planner, worker, code reviewer, scout) with inter-agent communication via a control channel, live dashboard rendering, and comprehensive test infrastructure. Includes agent discovery from `.md` files with YAML frontmatter, team definitions via `teams.yaml`, and extensible agent management with context window estimation. Adds 7,800+ lines of production code and tests with ~145 new test cases covering unit, integration, and filesystem behaviors, laying groundwork for test coverage expansion across all extensions.
+
+## [1.0.22](https://github.com/kostyay/agent-stuff/pull/33) - 2026-03-08
 
 Adds a thinking level indicator to the status bar display when reasoning models are active, showing Claude's reasoning depth at a glance (#33). Introduces a new `autoSimplify` setting (disabled by default) to control whether code simplification proposals are automatically generated after agent turns, giving users finer control over the extension's behavior. Refactors hash comparison logic in the simplify extension for improved clarity and performance.
 
