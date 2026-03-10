@@ -1,72 +1,110 @@
-# Subagent Example
+# Subagent Extension
 
 Delegate tasks to specialized subagents with isolated context windows.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Parent pi process                                      │
+│                                                         │
+│  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
+│  │  index.ts   │  │  runner.ts   │  │  dashboard.ts  │  │
+│  │  (tool +    │──│  (spawn +    │  │  (card render) │  │
+│  │   commands) │  │   stream)    │  │                │  │
+│  └──────┬──────┘  └──────────────┘  └───────────────┘  │
+│         │                                               │
+│  ┌──────┴──────────────────────┐                        │
+│  │  ControlChannelServer       │ UDP 127.0.0.1:<random> │
+│  │  (lib/control-channel.ts)   │◄────────────────┐      │
+│  └─────────────────────────────┘                 │      │
+└──────────────────────────────────────────────────│──────┘
+                                                   │
+         ┌─────────────────────────────────────────┤
+         │                                         │
+   ┌─────┴───────────┐                 ┌───────────┴─────┐
+   │  Child pi #1    │                 │  Child pi #2    │
+   │  (subagent)     │                 │  (subagent)     │
+   │                 │                 │                 │
+   │  session-namer  │                 │  session-namer  │
+   │  calls          │                 │  calls          │
+   │  sendControl    │                 │  sendControl    │
+   │  Message()      │                 │  Message()      │
+   └─────────────────┘                 └─────────────────┘
+```
+
+### Event Streams
+
+Each child subagent has two communication paths back to the parent:
+
+1. **stdout (JSON events)** — structured agent events (messages, tool calls, usage).
+   Parsed by `runner.ts` and fed to the dashboard via `onProgress`/`onRawEvent` callbacks.
+
+2. **UDP control channel** — out-of-band metadata (session names, status).
+   The parent binds a UDP socket on localhost; port and child ID are passed via
+   `PI_CONTROL_PORT` and `PI_CONTROL_ID` env vars. Children call
+   `sendControlMessage()` from `lib/control-channel.ts` — fire-and-forget, no
+   connection overhead, no interference with the JSON stream.
+
+Currently the control channel carries `session_name` messages from
+`session-namer.ts`, displayed as task descriptions on dashboard cards.
+The protocol is extensible to any `{ type, id, ...payload }` JSON message.
+
+## File Structure
+
+```
+subagent/
+├── README.md              # This file
+├── index.ts               # Extension entry point — tool, commands, dashboard widget
+├── runner.ts              # Spawns child `pi` processes, streams JSON events
+├── dashboard.ts           # Renders agent status cards for the live widget
+├── log-viewer.ts          # TUI overlay for viewing agent logs (Ctrl+Shift+1-9)
+├── agent-manager.ts       # TUI overlay for browsing/launching agents (/agents)
+├── agents.ts              # Agent discovery, frontmatter parsing, team loading
+├── types.ts               # Shared interfaces (RunState, SingleResult, etc.)
+├── formatting.ts          # Token/usage formatting, tool call display
+├── tui-helpers.ts         # Bordered rows, fuzzy search, color assignment
+├── utils.ts               # Pure helpers (concurrency, parsing, session dirs)
+├── agents/                # Bundled agent definitions
+│   ├── scout.md           # Fast recon, returns compressed context
+│   ├── planner.md         # Creates implementation plans
+│   ├── reviewer.md        # Code review
+│   ├── worker.md          # General-purpose (full capabilities)
+│   └── code.md            # Code-focused agent
+└── prompts/               # Workflow presets (prompt templates)
+    ├── implement.md       # scout → planner → worker
+    ├── scout-and-plan.md  # scout → planner (no implementation)
+    └── implement-and-review.md  # worker → reviewer → worker
+```
+
+### Shared Library
+
+```
+lib/
+└── control-channel.ts     # UDP control channel (server + client)
+```
+
+`lib/control-channel.ts` is a shared utility used by both the subagent extension
+(server side) and `session-namer.ts` (client side). Any extension can use the
+client to send metadata to a parent process when running as a subagent.
 
 ## Features
 
 - **Isolated context**: Each subagent runs in a separate `pi` process
-- **Streaming output**: See tool calls and progress as they happen
-- **Parallel streaming**: All parallel tasks stream updates simultaneously
-- **Markdown rendering**: Final output rendered with proper formatting (expanded view)
-- **Usage tracking**: Shows turns, tokens, cost, and context usage per agent
-- **Abort support**: Ctrl+C propagates to kill subagent processes
-- **Session persistence**: Continue a previous agent's conversation without re-reading files
-- **Live dashboard**: Card grid widget showing running agent progress, tool count, context %
-- **Teams**: Filter available agents by named groups defined in `teams.yaml`
-- **Context tracking**: Per-agent context window usage percentage
-
-## Structure
-
-```
-subagent/
-├── README.md            # This file
-├── index.ts             # The extension (entry point)
-├── agents.ts            # Agent discovery + team loading logic
-├── agents/              # Sample agent definitions
-│   ├── scout.md         # Fast recon, returns compressed context
-│   ├── planner.md       # Creates implementation plans
-│   ├── reviewer.md      # Code review
-│   └── worker.md        # General-purpose (full capabilities)
-└── prompts/             # Workflow presets (prompt templates)
-    ├── implement.md     # scout -> planner -> worker
-    ├── scout-and-plan.md    # scout -> planner (no implementation)
-    └── implement-and-review.md  # worker -> reviewer -> worker
-```
-
-## Installation
-
-From the repository root, symlink the files:
-
-```bash
-# Symlink the extension (must be in a subdirectory with index.ts)
-mkdir -p ~/.pi/agent/extensions/subagent
-ln -sf "$(pwd)/packages/coding-agent/examples/extensions/subagent/index.ts" ~/.pi/agent/extensions/subagent/index.ts
-ln -sf "$(pwd)/packages/coding-agent/examples/extensions/subagent/agents.ts" ~/.pi/agent/extensions/subagent/agents.ts
-
-# Symlink agents
-mkdir -p ~/.pi/agent/agents
-for f in packages/coding-agent/examples/extensions/subagent/agents/*.md; do
-  ln -sf "$(pwd)/$f" ~/.pi/agent/agents/$(basename "$f")
-done
-
-# Symlink workflow prompts
-mkdir -p ~/.pi/agent/prompts
-for f in packages/coding-agent/examples/extensions/subagent/prompts/*.md; do
-  ln -sf "$(pwd)/$f" ~/.pi/agent/prompts/$(basename "$f")
-done
-```
+- **Three execution modes**: Single, parallel (up to 8, 4 concurrent), chain (sequential with `{previous}`)
+- **Session persistence**: Continue a previous agent's conversation via `sessionId`
+- **Live dashboard**: Card grid with agent name, description, status, context %, elapsed time
+- **Agent log viewer**: Ctrl+Shift+1–9 opens a scrollable log overlay per agent
+- **Agent manager**: `/agents` TUI for browsing, searching, and launching agents
+- **Teams**: Filter available agents by named groups (`teams.yaml`)
+- **Abort handling**: Ctrl+C kills subprocesses, dashboard shows ⊘ aborted status
+- **Background spawn**: Launch agents while the main agent is busy
 
 ## Security Model
 
-This tool executes a separate `pi` subprocess with a delegated system prompt and tool/model configuration.
-
-**Project-local agents** (`.pi/agents/*.md`) are repo-controlled prompts that can instruct the model to read files, run bash commands, etc.
-
-**Default behavior:** Only loads **user-level agents** from `~/.pi/agent/agents`.
-
-To enable project-local agents, pass `agentScope: "both"` (or `"project"`). Only do this for repositories you trust.
-
-When running interactively, the tool prompts for confirmation before running project-local agents. Set `confirmProjectAgents: false` to disable.
+**Project-local agents** (`.pi/agents/*.md`) are repo-controlled prompts.
+Only loaded with `agentScope: "both"` or `"project"`. Interactive confirmation
+required by default (`confirmProjectAgents: true`).
 
 ## Usage
 
@@ -97,102 +135,41 @@ Continue the scout session (session ID: scout-1710020542123) and also check the 
 /implement-and-review add input validation to API endpoints
 ```
 
-## Tool Modes
-
-| Mode | Parameter | Description |
-|------|-----------|-------------|
-| Single | `{ agent, task }` | One agent, one task (returns sessionId for continuation) |
-| Parallel | `{ tasks: [...] }` | Multiple agents run concurrently (max 8, 4 concurrent) |
-| Chain | `{ chain: [...] }` | Sequential with `{previous}` placeholder |
-| Continue | `{ sessionId, task }` | Resume a previous single-mode agent conversation |
-
-## Session Persistence
-
-Every single-mode run creates a persistent session and returns a `sessionId` in the result. Pass this `sessionId` with a new `task` to continue the conversation — the agent resumes with full prior context, avoiding re-reading files it already explored.
-
-Sessions are stored in `~/.pi/agent/sessions/subagents/` and cleaned up automatically when a new pi session starts (`/new`).
-
-Use `/sessions` to list active sessions.
-
-## Teams
-
-Define named groups of agents in `teams.yaml`:
-
-```yaml
-# ~/.pi/agent/agents/teams.yaml  (user-level)
-# or .pi/agents/teams.yaml       (project-level)
-
-fast:
-  - scout
-  - worker
-
-full:
-  - scout
-  - planner
-  - worker
-  - reviewer
-```
-
-Use `/team` to select a team interactively, or `/team <name>` to switch directly. When a team is active, only its members are available for dispatch. `/team clear` removes the filter.
-
-Project-level teams override user-level teams with the same name.
-
-## Live Dashboard
-
-When subagents are running, a card grid widget appears above the chat showing:
-
-```
-┌──────────────────┐  ┌──────────────────┐
-│ scout            │  │ worker           │
-│ ● running 12s T:3│  │ ● running 3s T:1 │
-│ [###--] 62%      │  │ —                │
-│ reading auth.ts… │  │ writing file…    │
-└──────────────────┘  └──────────────────┘
-```
-
-Each card shows:
-- **Agent name**
-- **Status** + elapsed time + tool call count
-- **Context usage** — percentage bar (for known models) or raw token count
-- **Last output** — most recent line from the agent's response
-
-The dashboard auto-hides when no agents are running.
-
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/team [name]` | Select a team, or `/team clear` to remove filter |
-| `/sessions` | List active subagent sessions for continuation |
+| `/agents` | Interactive TUI to browse, search, and launch agents |
+| `/run <agent> <task>` | Run a single agent |
+| `/chain agent1 "task" -> agent2 "task"` | Sequential execution |
+| `/parallel agent1 "task" -> agent2 "task"` | Concurrent execution |
+| `/agent:<name> <task>` | Shortcut per agent (auto-registered) |
+| `/team [name\|clear]` | Select/clear agent team filter |
+| `/sessions` | List active sessions for continuation |
+| `/clean-agent` | Remove dashboard widget |
 
-## Output Display
+## Live Dashboard
 
-**Collapsed view** (default):
-- Status icon (✓/✗/⏳) and agent name
-- Session ID (if available)
-- Last 5-10 items (tool calls and text)
-- Usage stats: `3 turns ↑input ↓output RcacheRead WcacheWrite $cost ctx:contextTokens model`
+When subagents are running, a card grid widget appears:
 
-**Expanded view** (Ctrl+O):
-- Full task text
-- All tool calls with formatted arguments
-- Final output rendered as Markdown
-- Per-task usage (for chain/parallel)
+```
+┌──────────────────────┐  ┌──────────────────────┐
+│ 1 scout  haiku-4-5   │  │ 2 worker  sonnet-4   │
+│ scanning auth module │  │ refactoring routes    │
+│ ● running 12s T:3    │  │ ● running 3s T:1     │
+│ [###--] 62%          │  │ —                     │
+└──────────────────────┘  └──────────────────────┘
+```
 
-**Parallel mode streaming**:
-- Shows all tasks with live status (⏳ running, ✓ done, ✗ failed)
-- Updates as each task makes progress
-- Shows "2/3 done, 1 running" status
-
-**Tool call formatting** (mimics built-in tools):
-- `$ command` for bash
-- `read ~/path:1-10` for read
-- `grep /pattern/ in ~/path` for grep
-- etc.
+Each card shows:
+- **Agent name + model**
+- **Description** — AI-generated session name from the child (via control channel), falls back to last streaming line
+- **Status** — icon + state + elapsed + tool count (● running, ✓ done, ✗ error, ⊘ aborted)
+- **Context usage** — percentage bar or raw token count
 
 ## Agent Definitions
 
-Agents are markdown files with YAML frontmatter:
+Markdown files with YAML frontmatter:
 
 ```markdown
 ---
@@ -202,43 +179,23 @@ tools: read, grep, find, ls
 model: claude-haiku-4-5
 ---
 
-System prompt for the agent goes here.
+System prompt goes here.
 ```
 
 **Locations:**
-- `~/.pi/agent/agents/*.md` - User-level (always loaded)
-- `.pi/agents/*.md` - Project-level (only with `agentScope: "project"` or `"both"`)
-
-Project agents override user agents with the same name when `agentScope: "both"`.
-
-## Sample Agents
-
-| Agent | Purpose | Model | Tools |
-|-------|---------|-------|-------|
-| `scout` | Fast codebase recon | Haiku | read, grep, find, ls, bash |
-| `planner` | Implementation plans | Sonnet | read, grep, find, ls |
-| `reviewer` | Code review | Sonnet | read, grep, find, ls, bash |
-| `worker` | General-purpose | Sonnet | (all default) |
-
-## Workflow Prompts
-
-| Prompt | Flow |
-|--------|------|
-| `/implement <query>` | scout → planner → worker |
-| `/scout-and-plan <query>` | scout → planner |
-| `/implement-and-review <query>` | worker → reviewer → worker |
+- `~/.pi/agent/agents/*.md` — user-level (always loaded)
+- `.pi/agents/*.md` — project-level (requires `agentScope: "both"`)
 
 ## Error Handling
 
-- **Exit code != 0**: Tool returns error with stderr/output
+- **Exit code ≠ 0**: Tool returns error with stderr/output
 - **stopReason "error"**: LLM error propagated with error message
-- **stopReason "aborted"**: User abort (Ctrl+C) kills subprocess, throws error
+- **stopReason "aborted"**: Ctrl+C kills subprocess, dashboard shows ⊘ aborted
 - **Chain mode**: Stops at first failing step, reports which step failed
 
 ## Limitations
 
-- Output truncated to last 10 items in collapsed view (expand to see all)
-- Agents discovered fresh on each invocation (allows editing mid-session)
+- Output truncated to last 10 items in collapsed view (Ctrl+O to expand)
 - Parallel mode limited to 8 tasks, 4 concurrent
-- Context % estimation uses heuristic model-name matching (Claude=200k, GPT-4o=128k, Gemini=1M)
-- Session continuation only supported in single mode (not parallel/chain)
+- Context % uses heuristic model-name matching (Claude=200k, GPT-4o=128k, Gemini=1M)
+- Session continuation only in single mode

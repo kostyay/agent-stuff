@@ -10,6 +10,7 @@
 
 import { complete, getModel } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { sendControlMessage } from "../lib/control-channel.ts";
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -135,6 +136,7 @@ export default function sessionNamerExtension(pi: ExtensionAPI): void {
 		if (!baseName || pinned) return;
 		const name = lastNonAgentMode ? `${baseName} ${MODE_EMOJI[lastNonAgentMode]}` : baseName;
 		pi.setSessionName(name);
+		sendControlMessage({ type: "session_name", name: baseName });
 	}
 
 	/** Collect conversation text from the current branch, stripped and truncated. */

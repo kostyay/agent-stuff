@@ -31,6 +31,7 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | [`control.ts`](pi-extensions/control.ts) | Session control via Unix domain sockets for inter-session communication |
 | [`files.ts`](pi-extensions/files.ts) | `/files` command — file browser merging git status with session-referenced files, plus diff/edit actions |
 | [`git-rebase-master.ts`](pi-extensions/git-rebase-master.ts) | `/git-rebase-master` command — fetches latest main/master and rebases current branch with automatic LLM conflict resolution |
+| [`claude-import.ts`](pi-extensions/claude-import.ts) | Loads commands, skills, and agents from `.claude/` directories (project + global) and registers them as `/claude:*` commands |
 | [`kbrainstorm.ts`](pi-extensions/kbrainstorm.ts) | `ask_question` tool — interactive TUI for brainstorming with multiple-choice and freeform answers |
 | [`ticket/`](pi-extensions/ticket) | `ticket` tool — git-backed ticket tracker storing tickets as markdown files in `.tickets/` with hierarchy, dependencies, and status workflow |
 | [`loop.ts`](pi-extensions/loop.ts) | `/loop` command — runs a follow-up prompt loop with a breakout condition for iterative coding |
@@ -42,9 +43,12 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | [`sandbox/`](pi-extensions/sandbox) | OS-level sandboxing for bash commands via `sandbox-exec` (macOS) / bubblewrap (Linux) with merged global+project config, per-directory state persistence, and network isolation |
 | [`session-breakdown.ts`](pi-extensions/session-breakdown.ts) | `/session-breakdown` command — analyzes session usage (cost by model) with a GitHub-style activity graph |
 | [`session-namer.ts`](pi-extensions/session-namer.ts) | Auto-generates a short session name via Haiku after the first user request, re-generates on compaction or `/session-name-refresh`, and appends a mode emoji (📋/🧠) |
-| [`simplify.ts`](pi-extensions/simplify.ts) | `/simplify` command — detects the dominant language of changed files and runs the matching code-simplifier skill; accepts explicit file paths or falls back to git; auto-proposes after agent turns that modify source files |
-| [`status-bar.ts`](pi-extensions/status-bar.ts) | Rich three-line footer with model, context meter, token counts, cost, git status, tool tally, color-coded profile badge, sandbox status, and event-driven ticket stats |
+| [`simplify.ts`](pi-extensions/simplify.ts) | `/simplify` command — detects the dominant language of changed files and runs the matching code-simplifier skill; accepts explicit file paths or falls back to git; auto-proposes after agent turns that modify source files with configurable threshold, file-hash dedup, and session-isolated queuing (`autoSimplify` setting) |
+| [`stash.ts`](pi-extensions/stash.ts) | Ctrl+Shift+S stashes the current editor draft for a quick side-question; auto-restores after the agent responds |
+| [`status-bar.ts`](pi-extensions/status-bar.ts) | Rich three-line footer with model, context meter, token counts, cost, git status, tool tally, color-coded profile badge, sandbox status, event-driven ticket stats, streaming speed indicator, and thinking level display |
+| [`subagent/`](pi-extensions/subagent) | `subagent` tool — delegates tasks to specialized agents in isolated context windows with single, parallel, and chain modes; includes live dashboard, session persistence, teams, workflow prompts, and built-in agents (worker, planner, reviewer, scout, code) |
 | [`whimsical.ts`](pi-extensions/whimsical.ts) | Replaces "Thinking..." with random phrases like "Reticulating splines..." and "Consulting the void..." |
+| [`whoami.ts`](pi-extensions/whoami.ts) | `/whoami` command — prints the masked API key used for the current model's requests |
 
 ## Shared Libraries
 
