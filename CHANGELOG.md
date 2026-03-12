@@ -66,6 +66,11 @@ All notable changes to agent-stuff are documented here.
 
 
 
+
+## feat/persistent-stash-storage
+
+The stash extension now persists drafts across session switches and application restarts, storing them per-workspace in `~/.pi/stash/` (#37). Previously, stashed text was cleared whenever switching sessions; it now survives these transitions and survives process restarts by leveraging filesystem-backed storage with encoded workspace paths. The implementation adds load/save operations on `session_start` and `session_switch` events, ensuring users' drafts are automatically restored when they return to a workspace.
+
 ## feat/claude-import-subagent
 
 Introduces a new Claude import extension with a complete multi-agent subagent system (#35). The subagent framework enables orchestration of specialized agents (planner, worker, code reviewer, scout) with inter-agent communication via a control channel, live dashboard rendering, and comprehensive test infrastructure. Includes agent discovery from `.md` files with YAML frontmatter, team definitions via `teams.yaml`, and extensible agent management with context window estimation. Adds 7,800+ lines of production code and tests with ~145 new test cases covering unit, integration, and filesystem behaviors, laying groundwork for test coverage expansion across all extensions.
