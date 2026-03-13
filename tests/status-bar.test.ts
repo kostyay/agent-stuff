@@ -2,19 +2,20 @@
  * Unit tests for pi-extensions/status-bar — the rich two-line custom footer.
  *
  * Tests pure utility functions (hashString, hslToRgb, formatTokenCount,
- * getProfileName, getAuthLabel, buildProfileBadge) and the extension's
- * event-driven behavior via mocked ExtensionAPI / ExtensionContext.
+ * formatBytesPerSec, getProfileName, getAuthLabel, buildProfileBadge) and
+ * the extension's event-driven behavior via mocked ExtensionAPI / ExtensionContext.
  *
  * Uses Node's built-in test runner (node:test + node:assert).
  * Run with: node --experimental-strip-types --test tests/status-bar.test.ts
  */
 
-import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { afterEach, describe, it } from "node:test";
 
 import statusBarExtension, {
 	MUTATING_TOOLS,
 	buildProfileBadge,
+	formatBytesPerSec,
 	formatTokenCount,
 	getAuthLabel,
 	getProfileName,
@@ -132,6 +133,29 @@ describe("hslToRgb", () => {
 		// Each sector should produce a different RGB triple
 		const unique = new Set(colors.map(({ r, g, b }) => `${r},${g},${b}`));
 		assert.equal(unique.size, 6, "all six sectors should produce distinct colors");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// formatBytesPerSec
+// ---------------------------------------------------------------------------
+
+describe("formatBytesPerSec", () => {
+	it("formats small values as B/s", () => {
+		assert.equal(formatBytesPerSec(0), "0B/s");
+		assert.equal(formatBytesPerSec(512), "512B/s");
+		assert.equal(formatBytesPerSec(999), "999B/s");
+	});
+
+	it("formats kilobytes with kB/s suffix", () => {
+		assert.equal(formatBytesPerSec(1_000), "1.0kB/s");
+		assert.equal(formatBytesPerSec(1_500), "1.5kB/s");
+		assert.equal(formatBytesPerSec(999_999), "1000.0kB/s");
+	});
+
+	it("formats megabytes with MB/s suffix", () => {
+		assert.equal(formatBytesPerSec(1_000_000), "1.0MB/s");
+		assert.equal(formatBytesPerSec(2_500_000), "2.5MB/s");
 	});
 });
 
@@ -356,6 +380,7 @@ describe("statusBarExtension", () => {
 	/** Minimal mock of ExtensionAPI that captures registered handlers. */
 	function createMockPI() {
 		const handlers = new Map<string, ((...args: any[]) => any)[]>();
+		const eventListeners = new Map<string, ((...args: any[]) => any)[]>();
 
 		const pi = {
 			on(event: string, handler: (...args: any[]) => any) {
@@ -363,9 +388,21 @@ describe("statusBarExtension", () => {
 				handlers.get(event)!.push(handler);
 			},
 			exec: async () => ({ stdout: "", stderr: "", code: 0 }),
+			events: {
+				on(event: string, handler: (...args: any[]) => any) {
+					if (!eventListeners.has(event)) eventListeners.set(event, []);
+					eventListeners.get(event)!.push(handler);
+				},
+				emit(event: string, data: unknown) {
+					for (const handler of eventListeners.get(event) ?? []) {
+						handler(data);
+					}
+				},
+			},
+			getThinkingLevel: () => "off" as const,
 		};
 
-		return { pi: pi as any, handlers };
+		return { pi: pi as any, handlers, eventListeners };
 	}
 
 	/** Minimal mock of ExtensionContext. */
@@ -388,7 +425,7 @@ describe("statusBarExtension", () => {
 					isUsingOAuth: () => options.oauth ?? false,
 				},
 				cwd: options.cwd ?? "/home/user/project",
-				getContextUsage: () => options.contextPercent !== undefined
+				getContextUsage: () => options.contextPercent != null
 					? { percent: options.contextPercent, tokens: 1000, contextWindow: 200000 }
 					: undefined,
 				ui: {
@@ -402,7 +439,7 @@ describe("statusBarExtension", () => {
 	/** Create mock footer args and render at the given width. */
 	function renderFooter(
 		factory: any,
-		options: { gitBranch?: string | null } = {},
+		options: { gitBranch?: string | null; statuses?: Map<string, string> } = {},
 	): string[] {
 		const tui = { requestRender: () => {} };
 		const theme = {
@@ -411,7 +448,7 @@ describe("statusBarExtension", () => {
 		};
 		const footerData = {
 			onBranchChange: () => () => {},
-			getExtensionStatuses: () => new Map<string, string>(),
+			getExtensionStatuses: () => options.statuses ?? new Map<string, string>(),
 			getGitBranch: () => options.gitBranch ?? null,
 		};
 		const component = factory(tui, theme, footerData);
@@ -423,6 +460,9 @@ describe("statusBarExtension", () => {
 		statusBarExtension(pi);
 
 		const registeredEvents = [...handlers.keys()];
+		assert.ok(registeredEvents.includes("message_start"));
+		assert.ok(registeredEvents.includes("message_update"));
+		assert.ok(registeredEvents.includes("message_end"));
 		assert.ok(registeredEvents.includes("tool_execution_end"));
 		assert.ok(registeredEvents.includes("turn_start"));
 		assert.ok(registeredEvents.includes("turn_end"));
@@ -431,16 +471,12 @@ describe("statusBarExtension", () => {
 		assert.ok(registeredEvents.includes("session_switch"));
 	});
 
-	it("tool_execution_end increments tool counts", async () => {
-		const { pi, handlers } = createMockPI();
+	it("subscribes to ticket:stats and bgrun:stats events", () => {
+		const { pi, eventListeners } = createMockPI();
 		statusBarExtension(pi);
 
-		const { ctx } = createMockCtx();
-		await handlers.get("tool_execution_end")![0]({ toolName: "read" }, ctx);
-		await handlers.get("tool_execution_end")![0]({ toolName: "read" }, ctx);
-		await handlers.get("tool_execution_end")![0]({ toolName: "bash" }, ctx);
-
-		await handlers.get("session_start")![0]({}, ctx);
+		assert.ok(eventListeners.has("ticket:stats"), "should listen for ticket:stats");
+		assert.ok(eventListeners.has("bgrun:stats"), "should listen for bgrun:stats");
 	});
 
 	it("turn_start increments turn count and sets active", async () => {
@@ -449,31 +485,51 @@ describe("statusBarExtension", () => {
 
 		await handlers.get("turn_start")![0]({}, {});
 		await handlers.get("turn_start")![0]({}, {});
+
+		const { ctx, getFooterFactory } = createMockCtx({ branch: [] });
+		await handlers.get("session_start")![0]({}, ctx);
+
+		const lines = renderFooter(getFooterFactory());
+		assert.ok(lines[1].includes("T2"), "should show turn count of 2");
 	});
 
 	it("turn_end and agent_end clear active state", async () => {
 		const { pi, handlers } = createMockPI();
 		statusBarExtension(pi);
 
+		const { ctx, getFooterFactory } = createMockCtx({ branch: [] });
+		await handlers.get("session_start")![0]({}, ctx);
+
 		await handlers.get("turn_start")![0]({}, {});
+		const activeLines = renderFooter(getFooterFactory());
+		assert.ok(activeLines[0].includes("●"), "should show ● when active");
+
 		await handlers.get("turn_end")![0]({}, {});
+		const idleLines = renderFooter(getFooterFactory());
+		assert.ok(idleLines[0].includes("✓"), "should show ✓ after turn_end");
 
 		await handlers.get("turn_start")![0]({}, {});
 		await handlers.get("agent_end")![0]({}, {});
+		const agentEndLines = renderFooter(getFooterFactory());
+		assert.ok(agentEndLines[0].includes("✓"), "should show ✓ after agent_end");
 	});
 
-	it("session_start reconstructs state from branch history", async () => {
+	it("session_start reconstructs turn count from branch history", async () => {
 		const { pi, handlers } = createMockPI();
 		statusBarExtension(pi);
 
 		const branch = [
-			{ type: "message", message: { role: "toolResult", toolName: "read" } },
-			{ type: "message", message: { role: "toolResult", toolName: "read" } },
-			{ type: "message", message: { role: "toolResult", toolName: "bash" } },
+			{ type: "message", message: { role: "user" } },
 			{
 				type: "message", message: {
 					role: "assistant",
-					usage: { input: 100, output: 50, cacheRead: 10, cacheCreation: 5, cost: { total: 0.01 } },
+					usage: { input: 100, output: 50, cacheRead: 0, cacheCreation: 0, cost: { total: 0.01 } },
+				},
+			},
+			{
+				type: "message", message: {
+					role: "assistant",
+					usage: { input: 200, output: 100, cacheRead: 0, cacheCreation: 0, cost: { total: 0.02 } },
 				},
 			},
 			{ type: "custom", customType: "something-else" },
@@ -482,6 +538,9 @@ describe("statusBarExtension", () => {
 
 		await handlers.get("session_start")![0]({}, ctx);
 		assert.ok(getFooterFactory(), "setFooter should have been called");
+
+		const lines = renderFooter(getFooterFactory());
+		assert.ok(lines[1].includes("T2"), "should count 2 assistant messages as 2 turns");
 	});
 
 	it("session_start footer renders two lines", async () => {
@@ -519,7 +578,7 @@ describe("statusBarExtension", () => {
 		assert.ok(lines[0].includes("42%"), "line 1 should contain context percentage");
 	});
 
-	it("footer line 1 contains token counts and cost", async () => {
+	it("footer line 1 contains cache tokens and cost", async () => {
 		const { pi, handlers } = createMockPI();
 		statusBarExtension(pi);
 
@@ -535,8 +594,6 @@ describe("statusBarExtension", () => {
 		await handlers.get("session_start")![0]({}, ctx);
 
 		const lines = renderFooter(getFooterFactory());
-		assert.ok(lines[0].includes("↑5k"), "should show input tokens");
-		assert.ok(lines[0].includes("↓1.2k"), "should show output tokens");
 		assert.ok(lines[0].includes("⚡800"), "should show cache tokens");
 		assert.ok(lines[0].includes("$0.0123"), "should show cost");
 	});
@@ -558,6 +615,32 @@ describe("statusBarExtension", () => {
 
 		const lines = renderFooter(getFooterFactory());
 		assert.ok(!lines[0].includes("⚡"), "should not show cache icon when zero");
+	});
+
+	it("footer line 1 accumulates cache and cost from multiple messages", async () => {
+		const { pi, handlers } = createMockPI();
+		statusBarExtension(pi);
+
+		const branch = [
+			{
+				type: "message", message: {
+					role: "assistant",
+					usage: { input: 1000, output: 200, cacheRead: 50, cacheCreation: 0, cost: { total: 0.01 } },
+				},
+			},
+			{
+				type: "message", message: {
+					role: "assistant",
+					usage: { input: 2000, output: 300, cacheRead: 100, cacheCreation: 0, cost: { total: 0.02 } },
+				},
+			},
+		];
+		const { ctx, getFooterFactory } = createMockCtx({ branch, contextPercent: 15 });
+		await handlers.get("session_start")![0]({}, ctx);
+
+		const lines = renderFooter(getFooterFactory());
+		assert.ok(lines[0].includes("⚡150"), "should sum cache tokens: 50+100=150");
+		assert.ok(lines[0].includes("$0.0300"), "should sum costs: 0.01+0.02=0.03");
 	});
 
 	it("footer line 2 contains directory name", async () => {
@@ -613,44 +696,20 @@ describe("statusBarExtension", () => {
 		assert.ok(activeLines[0].includes("●"), "should show ● when active");
 	});
 
-	it("footer line 2 shows 'no tools yet' initially", async () => {
+	it("session_switch with reason 'new' resets turn count", async () => {
 		const { pi, handlers } = createMockPI();
 		statusBarExtension(pi);
 
-		const { ctx, getFooterFactory } = createMockCtx({ branch: [] });
-		await handlers.get("session_start")![0]({}, ctx);
-
-		const lines = renderFooter(getFooterFactory());
-		assert.ok(lines[1].includes("no tools yet"), "should show 'no tools yet' when no tools used");
-	});
-
-	it("footer shows tool counts after tool executions", async () => {
-		const { pi, handlers } = createMockPI();
-		statusBarExtension(pi);
-
-		const { ctx, getFooterFactory } = createMockCtx({ branch: [] });
-		await handlers.get("tool_execution_end")![0]({ toolName: "read" }, ctx);
-		await handlers.get("tool_execution_end")![0]({ toolName: "read" }, ctx);
-		await handlers.get("tool_execution_end")![0]({ toolName: "bash" }, ctx);
-		await handlers.get("session_start")![0]({}, ctx);
-
-		const lines = renderFooter(getFooterFactory());
-		assert.ok(lines[1].includes("read"), "should show read tool");
-		assert.ok(lines[1].includes("bash"), "should show bash tool");
-	});
-
-	it("session_switch with reason 'new' resets all state", async () => {
-		const { pi, handlers } = createMockPI();
-		statusBarExtension(pi);
-
-		const { ctx, getFooterFactory } = createMockCtx({ branch: [] });
-		await handlers.get("tool_execution_end")![0]({ toolName: "read" }, ctx);
 		await handlers.get("turn_start")![0]({}, {});
+		await handlers.get("turn_end")![0]({}, {});
+		await handlers.get("turn_start")![0]({}, {});
+		await handlers.get("turn_end")![0]({}, {});
+
+		const { ctx, getFooterFactory } = createMockCtx({ branch: [] });
 		await handlers.get("session_switch")![0]({ reason: "new" }, ctx);
 		await handlers.get("session_start")![0]({}, ctx);
 
 		const lines = renderFooter(getFooterFactory());
-		assert.ok(lines[1].includes("no tools yet"), "tools should be reset after new session");
 		assert.ok(lines[1].includes("T0"), "turn count should be reset after new session");
 	});
 
@@ -658,43 +717,15 @@ describe("statusBarExtension", () => {
 		const { pi, handlers } = createMockPI();
 		statusBarExtension(pi);
 
-		const { ctx, getFooterFactory } = createMockCtx({ branch: [] });
 		await handlers.get("turn_start")![0]({}, {});
 		await handlers.get("turn_end")![0]({}, {});
-		await handlers.get("tool_execution_end")![0]({ toolName: "read" }, ctx);
+
+		const { ctx, getFooterFactory } = createMockCtx({ branch: [] });
 		await handlers.get("session_switch")![0]({ reason: "resume" }, ctx);
 		await handlers.get("session_start")![0]({}, ctx);
 
 		const lines = renderFooter(getFooterFactory());
 		assert.ok(lines[1].includes("T1"), "turn count should be preserved on resume");
-		assert.ok(lines[1].includes("read"), "tool counts should be preserved on resume");
-	});
-
-	it("footer accumulates tokens from multiple assistant messages", async () => {
-		const { pi, handlers } = createMockPI();
-		statusBarExtension(pi);
-
-		const branch = [
-			{
-				type: "message", message: {
-					role: "assistant",
-					usage: { input: 1000, output: 200, cacheRead: 50, cacheCreation: 0, cost: { total: 0.01 } },
-				},
-			},
-			{
-				type: "message", message: {
-					role: "assistant",
-					usage: { input: 2000, output: 300, cacheRead: 100, cacheCreation: 0, cost: { total: 0.02 } },
-				},
-			},
-		];
-		const { ctx, getFooterFactory } = createMockCtx({ branch, contextPercent: 15 });
-		await handlers.get("session_start")![0]({}, ctx);
-
-		const lines = renderFooter(getFooterFactory());
-		assert.ok(lines[0].includes("↑3k"), "should sum input tokens: 1000+2000=3k");
-		assert.ok(lines[0].includes("↓500"), "should sum output tokens: 200+300=500");
-		assert.ok(lines[0].includes("$0.0300"), "should sum costs: 0.01+0.02=0.03");
 	});
 
 	it("footer handles null context usage gracefully", async () => {
@@ -707,6 +738,20 @@ describe("statusBarExtension", () => {
 		const lines = renderFooter(getFooterFactory());
 		assert.equal(lines.length, 2, "should still render 2 lines");
 		assert.ok(lines[0].includes("0%"), "should show 0% when context usage is null");
+	});
+
+	it("footer renders 3 lines when sandbox status is present", async () => {
+		const { pi, handlers } = createMockPI();
+		statusBarExtension(pi);
+
+		const { ctx, getFooterFactory } = createMockCtx({ branch: [] });
+		await handlers.get("session_start")![0]({}, ctx);
+
+		const statuses = new Map<string, string>();
+		statuses.set("sandbox", "🔒 sandbox active");
+		const lines = renderFooter(getFooterFactory(), { statuses });
+		assert.equal(lines.length, 3, "should render 3 lines with sandbox");
+		assert.ok(lines[2].includes("sandbox active"), "line 3 should contain sandbox status");
 	});
 
 	it("footer component has dispose and invalidate", async () => {
@@ -732,5 +777,31 @@ describe("statusBarExtension", () => {
 
 		component.invalidate();
 		component.dispose();
+	});
+
+	it("tool_execution_end triggers diff refresh for mutating tools only", async () => {
+		let execCalled = false;
+		const { pi, handlers } = createMockPI();
+		// Override exec to track calls
+		pi.exec = async () => {
+			execCalled = true;
+			return { stdout: "", stderr: "", code: 0 };
+		};
+		statusBarExtension(pi);
+
+		const { ctx } = createMockCtx();
+
+		// Non-mutating tool should not trigger exec
+		execCalled = false;
+		await handlers.get("tool_execution_end")![0]({ toolName: "read" }, ctx);
+		// Give the debounced timer a chance to fire
+		await new Promise((resolve) => setTimeout(resolve, 600));
+		assert.ok(!execCalled, "read should not trigger diff refresh");
+
+		// Mutating tool should trigger exec (after debounce)
+		execCalled = false;
+		await handlers.get("tool_execution_end")![0]({ toolName: "write" }, ctx);
+		await new Promise((resolve) => setTimeout(resolve, 600));
+		assert.ok(execCalled, "write should trigger diff refresh");
 	});
 });
