@@ -35,8 +35,8 @@
  * clears the remembered state and falls back to config defaults.
  *
  * Usage:
- * - `pi -e ./sandbox`             — sandbox enabled with default/config settings
- * - `pi -e ./sandbox --no-sandbox` — disable sandboxing
+ * - `pi -e ./sandbox`             — sandbox disabled by default; enable via config or /sandbox on
+ * - `pi -e ./sandbox --no-sandbox` — force disable sandboxing (overrides config)
  * - `/sandbox`                    — show current status and configuration
  * - `/sandbox on`                 — enable sandbox at runtime (remembered)
  * - `/sandbox off`                — disable sandbox at runtime (remembered)
@@ -65,7 +65,7 @@ interface SandboxConfig extends SandboxRuntimeConfig {
 }
 
 const DEFAULT_CONFIG: SandboxConfig = {
-	enabled: true,
+	enabled: false,
 	// Required for Go-based CLIs (gh, docker, etc.) that use the macOS
 	// trust daemon for TLS certificate verification.
 	enableWeakerNetworkIsolation: true,
