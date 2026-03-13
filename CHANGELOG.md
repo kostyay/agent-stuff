@@ -69,13 +69,19 @@ All notable changes to agent-stuff are documented here.
 
 
 
+
+
+## feat/operation-timer-widget
+
+Introduces an operation timer widget (#39) that displays real-time elapsed duration during agent execution above the editor, tracking both total operation time (from turn start to agent end) and individual tool execution duration. The widget uses compact time formatting (e.g. "5s", "2m 03s") and automatically manages lifecycle through agent event hooks (turn_start, tool_call, agent_end), ensuring cleanup on session switches or user input waits. This provides visibility into agent performance and tool execution times without requiring manual profiling.
+
 ## fix/sandbox-default-disabled
 
 **Sandbox Security Hardening** (#38)
 
 Sandbox extensions are now disabled by default, requiring explicit opt-in through configuration or runtime commands to enhance security posture (#38). Users running `pi -e ./sandbox` will have sandboxing disabled unless explicitly enabled via config settings or the `/sandbox on` command, while the `--no-sandbox` flag now serves as an explicit override. This change mitigates potential security risks from unintended sandbox execution and aligns with secure-by-default principles for CLI tool isolation.
 
-## feat/persistent-stash-storage
+## [1.0.26](https://github.com/kostyay/agent-stuff/pull/37) - 2026-03-12
 
 The stash extension now persists drafts across session switches and application restarts, storing them per-workspace in `~/.pi/stash/` (#37). Previously, stashed text was cleared whenever switching sessions; it now survives these transitions and survives process restarts by leveraging filesystem-backed storage with encoded workspace paths. The implementation adds load/save operations on `session_start` and `session_switch` events, ensuring users' drafts are automatically restored when they return to a workspace.
 
