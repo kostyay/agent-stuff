@@ -67,11 +67,19 @@ All notable changes to agent-stuff are documented here.
 
 
 
+
+
+## fix/sandbox-default-disabled
+
+**Sandbox Security Hardening** (#38)
+
+Sandbox extensions are now disabled by default, requiring explicit opt-in through configuration or runtime commands to enhance security posture (#38). Users running `pi -e ./sandbox` will have sandboxing disabled unless explicitly enabled via config settings or the `/sandbox on` command, while the `--no-sandbox` flag now serves as an explicit override. This change mitigates potential security risks from unintended sandbox execution and aligns with secure-by-default principles for CLI tool isolation.
+
 ## feat/persistent-stash-storage
 
 The stash extension now persists drafts across session switches and application restarts, storing them per-workspace in `~/.pi/stash/` (#37). Previously, stashed text was cleared whenever switching sessions; it now survives these transitions and survives process restarts by leveraging filesystem-backed storage with encoded workspace paths. The implementation adds load/save operations on `session_start` and `session_switch` events, ensuring users' drafts are automatically restored when they return to a workspace.
 
-## feat/claude-import-subagent
+## [1.0.25](https://github.com/kostyay/agent-stuff/pull/35) - 2026-03-10
 
 Introduces a new Claude import extension with a complete multi-agent subagent system (#35). The subagent framework enables orchestration of specialized agents (planner, worker, code reviewer, scout) with inter-agent communication via a control channel, live dashboard rendering, and comprehensive test infrastructure. Includes agent discovery from `.md` files with YAML frontmatter, team definitions via `teams.yaml`, and extensible agent management with context window estimation. Adds 7,800+ lines of production code and tests with ~145 new test cases covering unit, integration, and filesystem behaviors, laying groundwork for test coverage expansion across all extensions.
 
