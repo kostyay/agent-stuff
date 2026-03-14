@@ -37,6 +37,7 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | [`ticket/`](pi-extensions/ticket) | `ticket` tool — git-backed ticket tracker storing tickets as markdown files in `.tickets/` with hierarchy, dependencies, and status workflow |
 | [`loop.ts`](pi-extensions/loop.ts) | `/loop` command — runs a follow-up prompt loop with a breakout condition for iterative coding |
 | [`notify.ts`](pi-extensions/notify.ts) | Desktop notifications (OSC 777) when the agent finishes and is waiting for input |
+| [`op-timer.ts`](pi-extensions/op-timer.ts) | Live elapsed-time counter above the editor while the agent works — shows total operation and current tool execution duration |
 | [`terminal-progress.ts`](pi-extensions/terminal-progress.ts) | Terminal progress indicator (OSC 9;4) — indeterminate pulse while agent is working, clears on finish or user input |
 | [`plan-ask.ts`](pi-extensions/plan-ask.ts) | `/plan`, `/ask` commands and Shift+Tab mode rotation (🤖 agent → ❓ ask → 📋 plan) with read-only tool restrictions, clear-context-and-implement flow, and temp plan persistence |
 | [`prompt-editor.ts`](pi-extensions/prompt-editor.ts) | Prompt mode selector (default/fast/precise) with per-mode model & thinking persistence |
@@ -58,6 +59,7 @@ Reusable utilities in [`lib/`](lib), importable by extensions:
 | Library | Description |
 |---------|-------------|
 | [`changelog.ts`](lib/changelog.ts) | Pure-logic changelog parser — parses, splices, and reconciles markdown changelog sections (no I/O) |
+| [`control-channel.ts`](lib/control-channel.ts) | UDP-based communication channel between parent and child processes — used by subagent and session-namer |
 | [`timed-confirm.ts`](lib/timed-confirm.ts) | Timed confirmation dialog with auto-resolve countdown — used by commit/merge workflows |
 
 ## Skills

@@ -93,9 +93,12 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 		sessionName = `bgrun-${sanitizeName(basename(cwd))}`;
 	}
 
-	/** Run a tmux command and return stdout. */
+	/** Run a tmux command and return stdout. Throws on non-zero exit. */
 	async function tmux(args: string[]): Promise<string> {
 		const result = await pi.exec("tmux", ["-S", socketPath, ...args], { timeout: 5000 });
+		if (result.code !== 0) {
+			throw new Error(`tmux ${args[0]} failed (code ${result.code}): ${result.stderr.trim()}`);
+		}
 		return result.stdout.trim();
 	}
 
