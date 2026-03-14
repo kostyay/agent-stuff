@@ -74,6 +74,11 @@ All notable changes to agent-stuff are documented here.
 
 
 
+
+## docs/update-interview-tool-docs
+
+Updated the brainstorming tool documentation to reflect migration from `ask_question` to the new `interview` tool (#43). The `interview` tool provides a richer user experience with native form windows supporting multiple question types (single/multi-select, text, info panels), inline editing, and rich media rendering including code blocks, tables, and mermaid diagrams. Documentation now clarifies when to batch independent questions into a single call versus sequential questions, introduces recommendation and conviction signals for guiding user choices, and provides comprehensive examples for common patterns like trade-off analysis, design validation, and architecture decisions. Key principle updates emphasize always using the `interview` tool, batching strategies to reduce round-trips, and leveraging rich context presentation to enhance decision-making.
+
 ## feat/background-task-runner
 
 Introduces a comprehensive background task runner extension (#40) that enables users to launch, monitor, and manage long-running processes via tmux with `/bgrun` and `/bgtasks` commands, plus a `bgrun` tool for LLM-initiated task control. Tasks are automatically assigned memorable window names derived from commands (e.g., `npm run dev` → `npm-dev`), tracked per session, and killed on `/new` or shutdown with a timed confirmation prompt. The extension emits `bgrun:stats` events for real-time status-bar integration and includes an interactive task manager TUI for viewing output, killing tasks, and monitoring durations. Also adds `control-channel.ts` library for inter-process UDP communication and updates status-bar to display background task counts alongside existing metrics.
