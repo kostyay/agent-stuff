@@ -2,7 +2,7 @@
  * Status Bar — Rich two-line custom footer inspired by claude-status
  *
  * Line 1: [profile badge] + status icon + model + context meter (left), tokens in/out/cache + cost (right)
- * Line 2: cwd (branch ±dirty +add,-del ✨new📝mod🗑del⚡unstaged) on left, tool tally + turn on right
+ * Line 2: cwd (branch ±dirty +add,-del ✨new📝mod🗑del⚡unstaged) on left, turn count on right
  * Line 3: sandbox status (shown only when sandbox extension is active)
  *
  * When PI_CODING_AGENT_DIR is set to a non-default path, a colored profile badge
@@ -128,7 +128,6 @@ interface TicketStats {
 
 /** Status bar extension — registers a rich two-line custom footer. */
 export default function statusBarExtension(pi: ExtensionAPI) {
-	const counts: Record<string, number> = {};
 	let turnCount = 0;
 	let agentActive = false;
 
@@ -139,9 +138,21 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 	let renderTimer: ReturnType<typeof setInterval> | null = null;
 	let tuiRef: { requestRender: () => void } | null = null;
 
+	/** Clear the streaming speed render interval. */
+	function stopRenderTimer(): void {
+		if (renderTimer) {
+			clearInterval(renderTimer);
+			renderTimer = null;
+		}
+	}
+
 	// Ticket stats (populated via pi.events from ticket extension)
 	let ticketStats: TicketStats | null = null;
 	pi.events.on("ticket:stats", (data: unknown) => { ticketStats = data as TicketStats; });
+
+	// Background task stats (populated via pi.events from bgrun extension)
+	let bgrunStats: { running: number } | null = null;
+	pi.events.on("bgrun:stats", (data: unknown) => { bgrunStats = data as { running: number }; });
 
 	// Cached git diff stats (refreshed on tool_execution_end for write/edit/bash)
 	let diffStats: GitDiffStats | null = null;
@@ -227,14 +238,10 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 	pi.on("message_end", async (event) => {
 		if (event.message.role !== "assistant") return;
 		isStreaming = false;
-		if (renderTimer) {
-			clearInterval(renderTimer);
-			renderTimer = null;
-		}
+		stopRenderTimer();
 	});
 
 	pi.on("tool_execution_end", async (event, ctx) => {
-		counts[event.toolName] = (counts[event.toolName] || 0) + 1;
 		if (MUTATING_TOOLS.has(event.toolName)) scheduleDiffRefresh(ctx);
 	});
 
@@ -254,9 +261,6 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		for (const entry of ctx.sessionManager.getBranch()) {
 			if (entry.type !== "message") continue;
-			if (entry.message.role === "toolResult" && entry.message.toolName) {
-				counts[entry.message.toolName] = (counts[entry.message.toolName] || 0) + 1;
-			}
 			if (entry.message.role === "assistant") turnCount++;
 		}
 		refreshDiffStats(ctx);
@@ -268,20 +272,16 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 			return {
 				dispose() {
 					unsub();
-					if (renderTimer) { clearInterval(renderTimer); renderTimer = null; }
+					stopRenderTimer();
 					tuiRef = null;
 				},
 				invalidate() {},
 				render(width: number): string[] {
-					let tokIn = 0;
-					let tokOut = 0;
 					let tokCache = 0;
 					let cost = 0;
 					for (const entry of ctx.sessionManager.getBranch()) {
 						if (entry.type !== "message" || entry.message.role !== "assistant") continue;
 						const m = entry.message as AssistantMessage;
-						tokIn += m.usage.input;
-						tokOut += m.usage.output;
 						tokCache += (m.usage as any).cacheRead ?? 0;
 						tokCache += (m.usage as any).cacheCreation ?? 0;
 						cost += m.usage.cost.total;
@@ -308,7 +308,7 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 					const l1Left =
 						badge.text +
 						statusIcon +
-						theme.fg("dim", `${model}`) +
+						theme.fg("dim", model) +
 						thinkingLabel +
 						theme.fg("dim", " ") +
 						theme.fg("warning", "[") +
@@ -318,11 +318,12 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 						theme.fg("dim", " ") +
 						theme.fg(ctxColor, `${Math.round(pct)}%`);
 
-					const speedLabel = isStreaming && currentBytesPerSec === 0
-						? "…"
-						: currentBytesPerSec > 0 || isStreaming
-							? formatBytesPerSec(currentBytesPerSec)
-							: "";
+					let speedLabel = "";
+					if (isStreaming && currentBytesPerSec === 0) {
+						speedLabel = "…";
+					} else if (currentBytesPerSec > 0 || isStreaming) {
+						speedLabel = formatBytesPerSec(currentBytesPerSec);
+					}
 					let l1Right = speedLabel
 						? theme.fg("muted", `⏱${speedLabel}`)
 						: "";
@@ -340,6 +341,11 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 						.filter(([key, val]) => !HIDDEN_STATUSES.has(key) && !/auto.?update|pkg/i.test(val))
 						.map(([, val]) => val);
 
+					// Build bgrun status segment (hide when no tasks running)
+					if (bgrunStats && bgrunStats.running > 0) {
+						otherStatuses.push(`⚙ ${theme.fg("accent", `${bgrunStats.running}`)} ${theme.fg("dim", "bg")}`);
+					}
+
 					// Build ticket status segment from event data (hide when all closed)
 					if (ticketStats && (ticketStats.open > 0 || ticketStats.inProgress > 0)) {
 						const parts: string[] = [];
@@ -352,17 +358,16 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 						otherStatuses.push(`🎫 ${parts.join(" ")}`);
 					}
 
-					let l1Mid = "";
-					if (otherStatuses.length > 0) {
-						l1Mid = " " + otherStatuses.join(theme.fg("dim", " · "));
-					}
+					const l1Mid = otherStatuses.length > 0
+						? " " + otherStatuses.join(theme.fg("dim", " · "))
+						: "";
 
 					const pad1 = " ".repeat(
 						Math.max(1, width - visibleWidth(l1Left) - visibleWidth(l1Mid) - visibleWidth(l1Right)),
 					);
 					const line1 = truncateToWidth(l1Left + l1Mid + pad1 + l1Right, width, "");
 
-					// --- Line 2: cwd + git info (left), tool tally + turn (right) ---
+					// --- Line 2: cwd + git info (left), turn count (right) ---
 					const dir = basename(ctx.cwd);
 					const branch = footerData.getGitBranch();
 
@@ -402,35 +407,7 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 						}
 					}
 
-					const entries = Object.entries(counts);
-					let l2Right = "";
-					if (entries.length > 0) {
-						const sorted = entries.sort((a, b) => b[1] - a[1]);
-						const shown = sorted.slice(0, 5);
-						const rest = sorted.slice(5);
-
-						l2Right = shown
-							.map(
-								([name, count]) =>
-									theme.fg("accent", name) +
-									theme.fg("dim", ":") +
-									theme.fg("success", `${count}`),
-							)
-							.join(theme.fg("dim", " "));
-
-						if (rest.length > 0) {
-							const restTotal = rest.reduce((sum, [, c]) => sum + c, 0);
-							l2Right +=
-								theme.fg("dim", " +") +
-								theme.fg("muted", `${restTotal}`);
-						}
-					} else {
-						l2Right = theme.fg("dim", "no tools yet");
-					}
-
-					l2Right +=
-						theme.fg("dim", " · ") +
-						theme.fg("muted", `T${turnCount} `);
+					const l2Right = theme.fg("muted", `T${turnCount} `);
 
 					const pad2 = " ".repeat(
 						Math.max(1, width - visibleWidth(l2Left) - visibleWidth(l2Right)),
@@ -452,14 +429,13 @@ export default function statusBarExtension(pi: ExtensionAPI) {
 
 	pi.on("session_switch", async (event, ctx) => {
 		if (event.reason === "new") {
-			for (const key of Object.keys(counts)) delete counts[key];
 			turnCount = 0;
 			agentActive = false;
 			diffStats = null;
 			windowBytes = 0;
 			currentBytesPerSec = 0;
 			isStreaming = false;
-			if (renderTimer) { clearInterval(renderTimer); renderTimer = null; }
+			stopRenderTimer();
 			refreshDiffStats(ctx);
 		}
 	});

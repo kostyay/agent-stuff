@@ -71,11 +71,18 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/operation-timer-widget
+
+
+
+## feat/background-task-runner
+
+Introduces a comprehensive background task runner extension (#40) that enables users to launch, monitor, and manage long-running processes via tmux with `/bgrun` and `/bgtasks` commands, plus a `bgrun` tool for LLM-initiated task control. Tasks are automatically assigned memorable window names derived from commands (e.g., `npm run dev` → `npm-dev`), tracked per session, and killed on `/new` or shutdown with a timed confirmation prompt. The extension emits `bgrun:stats` events for real-time status-bar integration and includes an interactive task manager TUI for viewing output, killing tasks, and monitoring durations. Also adds `control-channel.ts` library for inter-process UDP communication and updates status-bar to display background task counts alongside existing metrics.
+
+## [1.0.27](https://github.com/kostyay/agent-stuff/pull/39) - 2026-03-13
 
 Introduces an operation timer widget (#39) that displays real-time elapsed duration during agent execution above the editor, tracking both total operation time (from turn start to agent end) and individual tool execution duration. The widget uses compact time formatting (e.g. "5s", "2m 03s") and automatically manages lifecycle through agent event hooks (turn_start, tool_call, agent_end), ensuring cleanup on session switches or user input waits. This provides visibility into agent performance and tool execution times without requiring manual profiling.
 
-## fix/sandbox-default-disabled
+## [1.0.27](https://github.com/kostyay/agent-stuff/pull/38) - 2026-03-13
 
 **Sandbox Security Hardening** (#38)
 
