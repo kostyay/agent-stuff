@@ -78,6 +78,11 @@ All notable changes to agent-stuff are documented here.
 
 
 
+
+## feat/cmux-sidebar-integration
+
+Introduces a new cmux sidebar integration extension (#45) that pushes pi agent state—including model, thinking mode, token usage, and session cost—into the cmux multiplexer's sidebar in real-time via lifecycle event hooks. The extension is fire-and-forget, silently ignoring cmux errors to prevent agent disruption, and operates only when running inside cmux (detected via `CMUX_SOCKET_PATH` environment variable). Replaces the terminal progress indicator with this richer sidebar-based status system, providing better visibility into agent activity, resource consumption, and tool execution within the cmux environment.
+
 ## feat/ruby-extension-support
 
 Added Ruby file extension support to the code simplification pipeline, enabling the tool to properly identify and process `.rb`, `.rake`, `.gemspec`, `.ru`, and `.erb` files (#44). A comprehensive Ruby code simplification skill has been introduced, targeting Ruby 3.4+ and Rails 8, covering modern idioms (pattern matching, endless methods, hash shorthand), Rails-specific patterns (model macros, Strong Parameters, Solid Queue), and best practices for clarity and maintainability. The skill emphasizes preserving functionality while reducing complexity through guard clauses, guard clauses, eliminating dead code, and leveraging standard library methods—backed by automated tooling (RuboCop, Brakeman, Rails test suite) for verification.
