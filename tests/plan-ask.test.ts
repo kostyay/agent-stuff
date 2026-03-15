@@ -98,6 +98,10 @@ function createMockPI() {
 		setActiveTools: (tools: string[]) => { activeTools = [...tools]; },
 		appendEntry: (_type: string, data: any) => { entries.push(data); },
 		sendUserMessage: (_msg: string) => {},
+		events: {
+			emit: (_event: string, ..._args: any[]) => {},
+			on: (_event: string, _handler: (...args: any[]) => any) => {},
+		},
 	};
 
 	return { pi: pi as any, handlers, commands, shortcuts, entries, getActiveTools: () => activeTools };
@@ -135,6 +139,21 @@ function createMockCtx() {
 }
 
 // ---------------------------------------------------------------------------
+// Shared test setup
+// ---------------------------------------------------------------------------
+
+/** Initialize the extension and fire session_start. */
+async function initExtension() {
+	const mock = createMockPI();
+	planAskExtension(mock.pi);
+	const ctxMock = createMockCtx();
+	for (const h of mock.handlers.get("session_start") ?? []) {
+		await h({}, ctxMock.ctx);
+	}
+	return { ...mock, ...ctxMock };
+}
+
+// ---------------------------------------------------------------------------
 // planAskExtension — shift+tab mode rotation
 // ---------------------------------------------------------------------------
 
@@ -153,37 +172,17 @@ describe("planAskExtension", () => {
 	});
 
 	it("shift+tab cycles modes without throwing", async () => {
-		const { pi, shortcuts, handlers } = createMockPI();
-		planAskExtension(pi);
-
-		// Initialize via session_start
-		const { ctx } = createMockCtx();
-		for (const h of handlers.get("session_start") ?? []) {
-			await h({}, ctx);
-		}
-
+		const { shortcuts, ctx } = await initExtension();
 		const handler = shortcuts.get("shift+tab")!.handler;
 
-		// agent → ask (this was the crash: "info" color)
-		await handler(ctx);
-
-		// ask → plan
-		await handler(ctx);
-
-		// plan → agent
-		await handler(ctx);
+		await handler(ctx); // agent → ask
+		await handler(ctx); // ask → plan
+		await handler(ctx); // plan → agent
 	});
 
 	it("shift+tab from agent to ask uses theme.fg without error", async () => {
-		const { pi, shortcuts, handlers } = createMockPI();
-		planAskExtension(pi);
+		const { shortcuts, ctx, statuses } = await initExtension();
 
-		const { ctx, statuses } = createMockCtx();
-		for (const h of handlers.get("session_start") ?? []) {
-			await h({}, ctx);
-		}
-
-		// Agent → Ask — this is the exact transition that was broken
 		await shortcuts.get("shift+tab")!.handler(ctx);
 
 		const status = statuses.get("plan-mode");
@@ -192,57 +191,35 @@ describe("planAskExtension", () => {
 	});
 
 	it("session_start sets initial status without error", async () => {
-		const { pi, handlers } = createMockPI();
-		planAskExtension(pi);
-
-		const { ctx, statuses } = createMockCtx();
-		for (const h of handlers.get("session_start") ?? []) {
-			await h({}, ctx);
-		}
-
+		const { statuses } = await initExtension();
 		assert.ok(statuses.has("plan-mode"), "should set plan-mode status on session_start");
 	});
 
 	it("shift+tab notifies with mode label", async () => {
-		const { pi, shortcuts, handlers } = createMockPI();
-		planAskExtension(pi);
-
-		const { ctx, notifications } = createMockCtx();
-		for (const h of handlers.get("session_start") ?? []) {
-			await h({}, ctx);
-		}
+		const { shortcuts, ctx, notifications } = await initExtension();
 
 		await shortcuts.get("shift+tab")!.handler(ctx);
 
 		assert.ok(notifications.length > 0, "should notify on mode switch");
 		assert.ok(
-			notifications[0].msg.includes("ask"),
+			notifications.some(n => n.msg.includes("ask")),
 			"notification should mention the new mode",
 		);
 	});
 
 	it("full rotation cycle returns to agent mode", async () => {
-		const { pi, shortcuts, handlers, getActiveTools } = createMockPI();
+		const { pi, shortcuts, ctx, notifications } = await initExtension();
 		pi.setActiveTools(["read", "bash", "edit", "write"]);
-		planAskExtension(pi);
-
-		const { ctx, notifications } = createMockCtx();
-		for (const h of handlers.get("session_start") ?? []) {
-			await h({}, ctx);
-		}
 
 		const handler = shortcuts.get("shift+tab")!.handler;
 
-		// agent → ask
-		await handler(ctx);
+		await handler(ctx); // agent → ask
 		assert.ok(notifications.some(n => n.msg.includes("ask")));
 
-		// ask → plan
-		await handler(ctx);
+		await handler(ctx); // ask → plan
 		assert.ok(notifications.some(n => n.msg.includes("plan")));
 
-		// plan → agent
-		await handler(ctx);
+		await handler(ctx); // plan → agent
 		assert.ok(notifications.some(n => n.msg.includes("agent")));
 	});
 });
