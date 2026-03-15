@@ -25,8 +25,9 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | Extension | Description |
 |-----------|-------------|
 | [`answer.ts`](pi-extensions/answer.ts) | Extracts questions from assistant responses and presents an interactive TUI for answering them one by one |
-| [`bgrun.ts`](pi-extensions/bgrun.ts) | `/bgrun` and `/bgtasks` commands + `bgrun` tool — run and manage background tasks via tmux with auto-derived window names, interactive task manager TUI, and `bgrun:stats` event for status-bar integration |
+| [`bgrun.ts`](pi-extensions/bgrun.ts) | `/bgrun` and `/bgtasks` commands + `bgrun` tool — run and manage background tasks via tmux with auto-derived window names, interactive task manager TUI (kill all with `K`), and `bgrun:stats` event for status-bar integration. Commands run as direct pane processes with `remain-on-exit` for post-exit output capture |
 | [`clear.ts`](pi-extensions/clear.ts) | `/clear` command — starts a new session (alias for `/new`) |
+| [`cmux.ts`](pi-extensions/cmux.ts) | cmux sidebar integration — pushes agent state (model, thinking, tokens, cost, tool activity) to the cmux sidebar via status keys and notifications. No-op when not running inside cmux |
 | [`commit.ts`](pi-extensions/commit.ts) | `/commit` command — stages all changes, generates a Conventional Commits message via LLM, creates a side branch if on the default branch |
 | [`context.ts`](pi-extensions/context.ts) | `/context` command — shows loaded extensions, skills, AGENTS.md/CLAUDE.md, and token usage |
 | [`control.ts`](pi-extensions/control.ts) | Session control via Unix domain sockets for inter-session communication |
@@ -38,7 +39,6 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | [`loop.ts`](pi-extensions/loop.ts) | `/loop` command — runs a follow-up prompt loop with a breakout condition for iterative coding |
 | [`notify.ts`](pi-extensions/notify.ts) | Desktop notifications (OSC 777) when the agent finishes and is waiting for input |
 | [`op-timer.ts`](pi-extensions/op-timer.ts) | Live elapsed-time counter above the editor while the agent works — shows total operation and current tool execution duration |
-| [`terminal-progress.ts`](pi-extensions/terminal-progress.ts) | Terminal progress indicator (OSC 9;4) — indeterminate pulse while agent is working, clears on finish or user input |
 | [`plan-ask.ts`](pi-extensions/plan-ask.ts) | `/plan`, `/ask` commands and Shift+Tab mode rotation (🤖 agent → ❓ ask → 📋 plan) with read-only tool restrictions, clear-context-and-implement flow, and temp plan persistence |
 | [`prompt-editor.ts`](pi-extensions/prompt-editor.ts) | Prompt mode selector (default/fast/precise) with per-mode model & thinking persistence |
 | [`review.ts`](pi-extensions/review.ts) | `/review` command — code review for uncommitted changes, PRs, or specific commits with optional auto-fix loop |
@@ -78,6 +78,7 @@ Skills live in [`skills/`](skills). Each skill has a `SKILL.md` that the agent r
 | [`pi-share`](skills/pi-share) | Load and parse session transcripts from buildwithpi.ai URLs |
 | [`pr-update`](skills/pr-update) | Update or create a pull request for the current branch with diff-based descriptions |
 | [`py-code-simplifier`](skills/py-code-simplifier) | Simplify and refine Python code for clarity and maintainability |
+| [`ruby-code-simplifier`](skills/ruby-code-simplifier) | Simplify and refine Ruby code for clarity and maintainability (Ruby 3.4+, Rails 8) |
 | [`summarize`](skills/summarize) | Convert URLs or files (PDF/DOCX/HTML) to Markdown via `markitdown`, with optional summarization |
 | [`tmux`](skills/tmux) | Remote-control tmux sessions by sending keystrokes and scraping pane output |
 | [`web-browser`](skills/web-browser) | Browser automation via Chrome DevTools Protocol (clicking, forms, navigation) |
