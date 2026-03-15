@@ -68,6 +68,14 @@ export default function cmuxExtension(pi: ExtensionAPI): void {
 		run("clear-status", key);
 	}
 
+	/** Update the token-count status if context usage is available. */
+	function syncTokenStatus(ctx: ExtensionContext): void {
+		const usage = ctx.getContextUsage();
+		if (usage && usage.tokens != null && usage.tokens > 0) {
+			setStatus("pi_tokens", formatTokens(usage.tokens), "number", BLUE);
+		}
+	}
+
 	// --- Session lifecycle ---
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -101,10 +109,7 @@ export default function cmuxExtension(pi: ExtensionAPI): void {
 			setStatus("pi_cost", formatCost(sessionCost), "dollarsign.circle", GREEN);
 		}
 
-		const usage = ctx.getContextUsage();
-		if (usage && usage.tokens > 0) {
-			setStatus("pi_tokens", formatTokens(usage.tokens), "number", BLUE);
-		}
+		syncTokenStatus(ctx);
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
@@ -126,10 +131,7 @@ export default function cmuxExtension(pi: ExtensionAPI): void {
 		setStatus("pi_state", "Idle", "checkmark.circle", GREEN);
 		clearStatus("pi_tool");
 
-		const usage = ctx.getContextUsage();
-		if (usage && usage.tokens > 0) {
-			setStatus("pi_tokens", formatTokens(usage.tokens), "number", BLUE);
-		}
+		syncTokenStatus(ctx);
 
 		if (sessionCost > 0) {
 			setStatus("pi_cost", formatCost(sessionCost), "dollarsign.circle", GREEN);
@@ -150,10 +152,7 @@ export default function cmuxExtension(pi: ExtensionAPI): void {
 			setStatus("pi_cost", formatCost(sessionCost), "dollarsign.circle", GREEN);
 		}
 
-		const usage = ctx.getContextUsage();
-		if (usage && usage.tokens > 0) {
-			setStatus("pi_tokens", formatTokens(usage.tokens), "number", BLUE);
-		}
+		syncTokenStatus(ctx);
 	});
 
 	// --- Model / thinking changes ---

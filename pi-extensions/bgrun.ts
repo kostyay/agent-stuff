@@ -119,22 +119,41 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 		pi.events.emit("bgrun:stats", { running: tasks.size });
 	}
 
-	/** Remove tasks whose tmux windows no longer exist. */
-	async function pruneDead(): Promise<void> {
-		let aliveNames: Set<string>;
+	/** Query tmux for window names and their pane_dead status. */
+	async function listWindowState(): Promise<Map<string, boolean>> {
 		try {
 			const out = await tmux([
 				"list-windows", "-t", sessionName,
-				"-F", "#{window_name}",
+				"-F", "#{window_name}\t#{pane_dead}",
 			]);
-			aliveNames = new Set(out.split("\n").filter(Boolean));
+			const state = new Map<string, boolean>();
+			for (const line of out.split("\n").filter(Boolean)) {
+				const tab = line.indexOf("\t");
+				const name = tab >= 0 ? line.slice(0, tab) : line;
+				const dead = tab >= 0 && line.slice(tab + 1) === "1";
+				state.set(name, dead);
+			}
+			return state;
 		} catch {
-			aliveNames = new Set();
+			return new Map();
 		}
+	}
+
+	/** Remove tasks whose tmux windows no longer exist or whose panes have exited. */
+	async function pruneDead(): Promise<void> {
+		const windowState = await listWindowState();
 
 		let pruned = false;
 		for (const name of tasks.keys()) {
-			if (!aliveNames.has(name)) {
+			if (!windowState.has(name)) {
+				// Window gone entirely
+				tasks.delete(name);
+				pruned = true;
+			} else if (windowState.get(name)) {
+				// Pane exited — kill the remain-on-exit window and remove task
+				try {
+					await tmux(["kill-window", "-t", `${sessionName}:${name}`]);
+				} catch { /* already gone */ }
 				tasks.delete(name);
 				pruned = true;
 			}
@@ -149,8 +168,16 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 		const rawName = deriveTaskName(command);
 		const name = uniqueName(rawName, tasks);
 
-		await tmux(["new-window", "-t", sessionName, "-n", name]);
-		await tmux(["send-keys", "-t", `${sessionName}:${name}`, command, "Enter"]);
+		// Run command as the pane process so it exits when done.
+		// remain-on-exit keeps the window for output capture after exit.
+		await tmux([
+			"new-window", "-t", sessionName, "-n", name,
+			"zsh", "-c", command,
+		]);
+		await tmux([
+			"set-option", "-t", `${sessionName}:${name}`,
+			"remain-on-exit", "on",
+		]);
 
 		const task: BgTask = { name, command, startedAt: Date.now() };
 		tasks.set(name, task);
@@ -354,6 +381,10 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 					}
 					return;
 				}
+				if (data === "K") {
+					killAll().then(() => done(undefined));
+					return;
+				}
 			}
 
 			function handleDetailInput(data: string): void {
@@ -410,7 +441,7 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 				}
 
 				add("");
-				add(theme.fg("dim", " ↑↓ navigate • Enter view output • k kill • q/Esc close"));
+				add(theme.fg("dim", " ↑↓ navigate • Enter view output • k kill • K kill all • q/Esc close"));
 				add(theme.fg("accent", "─".repeat(width)));
 
 				return lines;
@@ -488,10 +519,8 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 		description:
 			"Run and manage background tasks via tmux. " +
 			"Use 'start' to launch a command, 'list' to see all tasks, " +
-			"'capture' to get a task's output, 'kill' to stop a task.",
-		promptGuidelines: [
+			"'capture' to get a task's output, 'kill' to stop a task. " +
 			"Use bgrun (not bash) for long-running or background processes: dev servers, watchers, builds, test suites — anything that doesn't terminate quickly.",
-		],
 		parameters: BgRunParams,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
@@ -595,9 +624,7 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 			}
 
 			if (details?.output) {
-				const outputStr = String(details.output);
-				const previewLines = outputStr.split("\n").slice(-5);
-				const preview = previewLines.join("\n");
+				const preview = String(details.output).split("\n").slice(-5).join("\n");
 				return new Text(
 					theme.fg("success", `✓ ${details.task_id}\n`) +
 					theme.fg("dim", preview),
