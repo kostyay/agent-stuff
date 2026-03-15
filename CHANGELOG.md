@@ -75,11 +75,18 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## docs/update-interview-tool-docs
+
+
+
+## feat/ruby-extension-support
+
+Added Ruby file extension support to the code simplification pipeline, enabling the tool to properly identify and process `.rb`, `.rake`, `.gemspec`, `.ru`, and `.erb` files (#44). A comprehensive Ruby code simplification skill has been introduced, targeting Ruby 3.4+ and Rails 8, covering modern idioms (pattern matching, endless methods, hash shorthand), Rails-specific patterns (model macros, Strong Parameters, Solid Queue), and best practices for clarity and maintainability. The skill emphasizes preserving functionality while reducing complexity through guard clauses, guard clauses, eliminating dead code, and leveraging standard library methods—backed by automated tooling (RuboCop, Brakeman, Rails test suite) for verification.
+
+## [1.0.29](https://github.com/kostyay/agent-stuff/pull/43) - 2026-03-14
 
 Updated the brainstorming tool documentation to reflect migration from `ask_question` to the new `interview` tool (#43). The `interview` tool provides a richer user experience with native form windows supporting multiple question types (single/multi-select, text, info panels), inline editing, and rich media rendering including code blocks, tables, and mermaid diagrams. Documentation now clarifies when to batch independent questions into a single call versus sequential questions, introduces recommendation and conviction signals for guiding user choices, and provides comprehensive examples for common patterns like trade-off analysis, design validation, and architecture decisions. Key principle updates emphasize always using the `interview` tool, batching strategies to reduce round-trips, and leveraging rich context presentation to enhance decision-making.
 
-## feat/background-task-runner
+## [1.0.29](https://github.com/kostyay/agent-stuff/pull/40) - 2026-03-14
 
 Introduces a comprehensive background task runner extension (#40) that enables users to launch, monitor, and manage long-running processes via tmux with `/bgrun` and `/bgtasks` commands, plus a `bgrun` tool for LLM-initiated task control. Tasks are automatically assigned memorable window names derived from commands (e.g., `npm run dev` → `npm-dev`), tracked per session, and killed on `/new` or shutdown with a timed confirmation prompt. The extension emits `bgrun:stats` events for real-time status-bar integration and includes an interactive task manager TUI for viewing output, killing tasks, and monitoring durations. Also adds `control-channel.ts` library for inter-process UDP communication and updates status-bar to display background task counts alongside existing metrics.
 

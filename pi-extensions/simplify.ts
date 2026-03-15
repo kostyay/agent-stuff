@@ -52,6 +52,11 @@ const FILE_EXTENSIONS: Record<string, string> = {
 	".go": "go",
 	".py": "py",
 	".pyi": "py",
+	".rb": "ruby",
+	".rake": "ruby",
+	".gemspec": "ruby",
+	".ru": "ruby",
+	".erb": "ruby",
 };
 
 // ---------------------------------------------------------------------------
