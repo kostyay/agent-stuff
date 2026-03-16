@@ -82,7 +82,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/bgrun-kill-all-and-pane-exit
+
+
+## refactor/extract-ask-question-ui
+
+Extracts the interactive ask-question UI logic from kbrainstorm into a reusable library module (#47), enabling other extensions to leverage the same TUI patterns for Q&A workflows. The refactor moves ~328 lines of TUI rendering, editor state management, and option-handling logic into `lib/ask-question-ui.ts` while reducing kbrainstorm to a thin wrapper, and includes comprehensive test coverage (488 lines) to ensure reliability of the extracted component. This improves code maintainability and sets up a foundation for consistent user-facing question/answer interactions across the extension ecosystem.
+
+## [1.0.32](https://github.com/kostyay/agent-stuff/pull/46) - 2026-03-15
 
 Improved background task management with a new kill-all command and enhanced pane exit handling (#46). The `bgrun` extension now runs commands as direct pane processes with `remain-on-exit` enabled, allowing output capture after task completion and automatic cleanup of exited panes. Added `K` hotkey to terminate all running tasks at once from the task manager TUI. Additionally, expanded extension documentation and added `cmux.ts` to the extension registry for sidebar state synchronization, while refactoring test utilities to reduce boilerplate in plan-ask tests.
 
