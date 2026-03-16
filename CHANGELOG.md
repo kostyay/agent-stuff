@@ -84,6 +84,11 @@ All notable changes to agent-stuff are documented here.
 
 
 
+
+## refactor/extract-tmux-library
+
+Extracted tmux primitives to a reusable shared library (`lib/tmux.ts`) to eliminate duplication between `bgrun` and the subagent runner (#48). The new library provides a clean abstraction for session management, window creation, and pane capture through an injectable `exec` function, enabling both extensions to leverage consistent tmux handling without tight coupling to the pi extension API. This refactor improves maintainability, enables safer window naming with collision detection, and sets the foundation for future tmux-based features. The bgrun extension now re-exports key utilities for backward compatibility with existing tests and plugins.
+
 ## refactor/extract-ask-question-ui
 
 Extracts the interactive ask-question UI logic from kbrainstorm into a reusable library module (#47), enabling other extensions to leverage the same TUI patterns for Q&A workflows. The refactor moves ~328 lines of TUI rendering, editor state management, and option-handling logic into `lib/ask-question-ui.ts` while reducing kbrainstorm to a thin wrapper, and includes comprehensive test coverage (488 lines) to ensure reliability of the extracted component. This improves code maintainability and sets up a foundation for consistent user-facing question/answer interactions across the extension ecosystem.
