@@ -1,8 +1,10 @@
 /**
  * Subagent Tool — Delegate tasks to specialized agents
  *
- * Spawns a separate `pi` process for each subagent invocation,
- * giving it an isolated context window.
+ * Runs each subagent as a `pi` process inside a tmux window,
+ * giving human-readable output that can be monitored via `tmux attach`.
+ * Real-time stats arrive over the UDP control channel from a tiny
+ * stats-reporter extension loaded in each child process.
  *
  * Supports three modes:
  *   - Single: { agent: "name", task: "..." }
@@ -10,12 +12,11 @@
  *   - Chain: { chain: [{ agent: "name", task: "... {previous} ..." }, ...] }
  *
  * Additional features:
+ *   - tmux windows: each agent runs in `agent:<name>` tmux window
  *   - Session persistence: continue a previous agent conversation via sessionId
  *   - Live dashboard widget: card grid showing running agent progress
  *   - Teams: filter available agents by named groups (teams.yaml)
  *   - Context tracking: per-agent context window usage percentage
- *
- * Uses JSON mode to capture structured output from subagents.
  */
 
 import { StringEnum } from "@mariozechner/pi-ai";
@@ -25,7 +26,8 @@ import { Type } from "@sinclair/typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ControlChannelServer } from "../../lib/control-channel.ts";
+import { type ControlMessage, ControlChannelServer } from "../../lib/control-channel.ts";
+import { type TmuxConfig, buildTmuxConfig, killSession } from "../../lib/tmux.ts";
 import { AgentManagerComponent } from "./agent-manager.js";
 import {
 	type AgentConfig,
@@ -157,15 +159,79 @@ export default function subagentExtension(pi: ExtensionAPI) {
 	let dashboardAutoClearTimer: ReturnType<typeof setTimeout> | null = null;
 	const DASHBOARD_AUTO_CLEAR_MS = 10_000;
 
+	// ── tmux Config ──────────────────────────────
+
+	let tmuxConfig: TmuxConfig = buildTmuxConfig(baseCwd, "subagent");
+
+	/** Track existing tmux window names for uniqueness across concurrent runs. */
+	const activeWindows = new Set<string>();
+
 	// ── Control Channel ──────────────────────────
 
+	/** Map runId → control message handler for routing UDP messages to runners. */
+	const controlHandlers = new Map<number, (msg: ControlMessage) => void>();
+
+	/** Build registerControlHandler/unregisterControlHandler for a given runId. */
+	function controlHandlerOpts(runId: number): Pick<
+		import("./runner.js").RunAgentOptions,
+		"registerControlHandler" | "unregisterControlHandler"
+	> {
+		return {
+			registerControlHandler: (h) => controlHandlers.set(runId, h),
+			unregisterControlHandler: () => controlHandlers.delete(runId),
+		};
+	}
+
 	const controlChannel = new ControlChannelServer((msg) => {
+		// Route to the specific runner's handler (progress/usage tracking)
+		const handler = controlHandlers.get(msg.id);
+		if (handler) handler(msg);
+
+		// Populate RunState for dashboard + log viewer
 		const state = runStates.get(msg.id);
 		if (!state) return;
-		if (msg.type === "session_name" && typeof msg.name === "string") {
-			state.description = msg.name;
-			updateDashboard();
+
+		switch (msg.type) {
+			case "session_name": {
+				if (typeof msg.name === "string") {
+					state.description = msg.name;
+				}
+				break;
+			}
+			case "text_delta": {
+				const lastLine = (msg as { lastLine: string }).lastLine;
+				// Update log partial for the log viewer
+				state.logPartial = lastLine;
+				break;
+			}
+			case "tool_start": {
+				// Flush partial text
+				if (state.logPartial) {
+					state.logEntries.push({ kind: "text", line: state.logPartial });
+					state.logPartial = "";
+				}
+				const name = (msg as { toolName: string }).toolName;
+				state.logEntries.push({ kind: "toolCall", name, args: {} });
+				break;
+			}
+			case "tool_end": {
+				const isError = (msg as { isError: boolean }).isError;
+				const toolName = (msg as { toolName: string }).toolName;
+				const status = isError ? "✗ error" : "✓ done";
+				state.logEntries.push({ kind: "toolOutput", text: `${toolName}: ${status}` });
+				break;
+			}
+			case "usage": {
+				// Flush partial, add separator between turns
+				if (state.logPartial) {
+					state.logEntries.push({ kind: "text", line: state.logPartial });
+					state.logPartial = "";
+				}
+				state.logEntries.push({ kind: "separator" });
+				break;
+			}
 		}
+		updateDashboard();
 	});
 	controlChannel.start().catch(() => {});
 
@@ -251,7 +317,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		mode: "single" | "parallel" | "chain",
 		step?: number,
 		model?: string,
-	): { runId: number; onProgress: (p: AgentProgress) => void; onRawEvent: (event: Record<string, unknown>) => void } {
+	): { runId: number; onProgress: (p: AgentProgress) => void } {
 		cancelDashboardAutoClear();
 		const runId = nextRunId++;
 		const state: RunState = {
@@ -269,79 +335,12 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		runStates.set(runId, state);
 		updateDashboard();
 
-		const onProgress = (p: AgentProgress) => {
+		const onProgress = (p: AgentProgress): void => {
 			state.progress = p;
 			updateDashboard();
 		};
 
-		/** Flush any buffered partial text into a log entry. */
-		const flushPartial = () => {
-			if (state.logPartial) {
-				state.logEntries.push({ kind: "text", line: state.logPartial });
-				state.logPartial = "";
-			}
-		};
-
-		/** Process a raw JSON event from the subagent into structured log entries. */
-		const onRawEvent = (event: Record<string, unknown>) => {
-			// Streaming text deltas
-			if (event.type === "message_update") {
-				const delta = event.assistantMessageEvent as Record<string, unknown> | undefined;
-				if (delta?.type === "text_delta" && typeof delta.delta === "string") {
-					const text = state.logPartial + delta.delta;
-					const lines = text.split("\n");
-					state.logPartial = lines.pop() ?? "";
-					for (const line of lines) {
-						state.logEntries.push({ kind: "text", line });
-					}
-				}
-				return;
-			}
-
-			// Tool execution start — extract tool call info from the event
-			if (event.type === "tool_execution_start") {
-				flushPartial();
-				const name = (event.toolName ?? "unknown") as string;
-				const args = (event.args ?? {}) as Record<string, unknown>;
-				state.logEntries.push({ kind: "toolCall", name, args });
-				return;
-			}
-
-			// Tool result — show truncated output
-			if (event.type === "tool_result_end" || event.type === "tool_execution_end") {
-				const extractContent = (content: Array<Record<string, unknown>> | undefined) => {
-					if (!content) return;
-					for (const part of content) {
-						if (part.type === "text" && typeof part.text === "string") {
-							const lines = part.text.split("\n");
-							const preview = lines.slice(0, 8);
-							if (lines.length > 8) preview.push(`... (${lines.length - 8} more lines)`);
-							state.logEntries.push({ kind: "toolOutput", text: preview.join("\n") });
-						}
-					}
-				};
-
-				// tool_execution_end has { result, isError }
-				if (event.result && typeof event.result === "object") {
-					const result = event.result as Record<string, unknown>;
-					extractContent(result.content as Array<Record<string, unknown>> | undefined);
-				}
-				// tool_result_end has { message } with content
-				const msg = event.message as Record<string, unknown> | undefined;
-				if (msg?.content) {
-					extractContent(msg.content as Array<Record<string, unknown>>);
-				}
-				return;
-			}
-
-			// Message complete — flush text, add separator between turns
-			if (event.type === "message_end") {
-				flushPartial();
-				state.logEntries.push({ kind: "separator" });
-			}
-		};
-
-		return { runId, onProgress, onRawEvent };
+		return { runId, onProgress };
 	}
 
 	/** Cancel any pending dashboard auto-clear timer. */
@@ -464,16 +463,19 @@ export default function subagentExtension(pi: ExtensionAPI) {
 
 		const resolvedTask = task || "Continue from where you left off.";
 		const sessionAgent = args.allAgents.find((a) => a.name === session.agentName);
-		const { runId, onProgress, onRawEvent } = trackAgent(
+		const { runId, onProgress } = trackAgent(
 			session.agentName, resolvedTask, "single", undefined, args.currentModelId ?? sessionAgent?.model,
 		);
 
 		const result = await runSingleAgent({
+			exec: pi.exec.bind(pi), tmuxConfig,
 			defaultCwd: args.cwd, agents: args.allAgents, agentName: session.agentName,
 			task: resolvedTask, cwd, signal: args.signal, onUpdate: args.onUpdate,
 			makeDetails: details, sessionFile: session.sessionFile, isResume: true,
-			onProgress, onRawEvent, modelOverride: args.currentModelId,
+			onProgress, modelOverride: args.currentModelId,
 			extraEnv: controlChannel.childEnv(runId),
+			existingWindows: activeWindows,
+			...controlHandlerOpts(runId),
 		});
 
 		result.sessionId = sessionId;
@@ -509,7 +511,7 @@ export default function subagentExtension(pi: ExtensionAPI) {
 			const taskWithContext = step.task.replace(/\{previous\}/g, previousOutput);
 			const chainAgent = args.agents.find((a) => a.name === step.agent);
 			const session = createSession(step.agent, chainAgent?.source ?? "user");
-			const { runId, onProgress, onRawEvent } = trackAgent(
+			const { runId, onProgress } = trackAgent(
 				step.agent, taskWithContext, "chain", i + 1, args.currentModelId ?? chainAgent?.model,
 			);
 
@@ -526,11 +528,13 @@ export default function subagentExtension(pi: ExtensionAPI) {
 				: undefined;
 
 			const result = await runSingleAgent({
+				exec: pi.exec.bind(pi), tmuxConfig,
 				defaultCwd: args.cwd, agents: args.agents, agentName: step.agent,
 				task: taskWithContext, cwd: step.cwd, step: i + 1, signal: args.signal,
-				onUpdate: chainUpdate, makeDetails: details, onProgress, onRawEvent,
+				onUpdate: chainUpdate, makeDetails: details, onProgress,
 				modelOverride: args.currentModelId, extraEnv: controlChannel.childEnv(runId),
-				sessionFile: session.sessionFile,
+				sessionFile: session.sessionFile, existingWindows: activeWindows,
+				...controlHandlerOpts(runId),
 			});
 			result.sessionId = session.id;
 			results.push(result);
@@ -591,11 +595,12 @@ export default function subagentExtension(pi: ExtensionAPI) {
 
 		const results = await mapWithConcurrencyLimit(tasks, MAX_CONCURRENCY, async (t, index) => {
 			const parallelAgent = args.agents.find((a) => a.name === t.agent);
-			const { runId, onProgress, onRawEvent } = trackAgent(
+			const { runId, onProgress } = trackAgent(
 				t.agent, t.task, "parallel", undefined, args.currentModelId ?? parallelAgent?.model,
 			);
 
 			const result = await runSingleAgent({
+				exec: pi.exec.bind(pi), tmuxConfig,
 				defaultCwd: args.cwd, agents: args.agents, agentName: t.agent,
 				task: t.task, cwd: t.cwd, signal: args.signal,
 				onUpdate: (partial) => {
@@ -604,9 +609,10 @@ export default function subagentExtension(pi: ExtensionAPI) {
 						emitUpdate();
 					}
 				},
-				makeDetails: details, onProgress, onRawEvent,
+				makeDetails: details, onProgress,
 				modelOverride: args.currentModelId, extraEnv: controlChannel.childEnv(runId),
-				sessionFile: taskSessions[index].sessionFile,
+				sessionFile: taskSessions[index].sessionFile, existingWindows: activeWindows,
+				...controlHandlerOpts(runId),
 			});
 			result.sessionId = taskSessions[index].id;
 			allResults[index] = result;
@@ -638,15 +644,18 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		const details = buildDetails("single", args);
 		const agent = args.agents.find((a) => a.name === agentName);
 		const session = createSession(agentName, agent?.source ?? "user");
-		const { runId, onProgress, onRawEvent } = trackAgent(
+		const { runId, onProgress } = trackAgent(
 			agentName, task, "single", undefined, args.currentModelId ?? agent?.model,
 		);
 
 		const result = await runSingleAgent({
+			exec: pi.exec.bind(pi), tmuxConfig,
 			defaultCwd: args.cwd, agents: args.agents, agentName, task, cwd,
 			signal: args.signal, onUpdate: args.onUpdate, makeDetails: details,
-			sessionFile: session.sessionFile, onProgress, onRawEvent,
+			sessionFile: session.sessionFile, onProgress,
 			modelOverride: args.currentModelId, extraEnv: controlChannel.childEnv(runId),
+			existingWindows: activeWindows,
+			...controlHandlerOpts(runId),
 		});
 
 		result.sessionId = session.id;
@@ -1160,13 +1169,14 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		}
 
 		const session = createSession(agentName, agent.source);
-		const { runId, onProgress, onRawEvent } = trackAgent(
+		const { runId, onProgress } = trackAgent(
 			agentName, task, "single", undefined, agent.model,
 		);
 
 		ctx.ui.notify(`Background: started ${agentName}`, "info");
 
 		runSingleAgent({
+			exec: pi.exec.bind(pi), tmuxConfig,
 			defaultCwd: cwd,
 			agents,
 			agentName,
@@ -1179,8 +1189,9 @@ export default function subagentExtension(pi: ExtensionAPI) {
 			}),
 			sessionFile: session.sessionFile,
 			onProgress,
-			onRawEvent,
 			extraEnv: controlChannel.childEnv(runId),
+			existingWindows: activeWindows,
+			...controlHandlerOpts(runId),
 		}).then((result) => {
 			result.sessionId = session.id;
 			completeTrackedAgent(runId, result);
@@ -1459,6 +1470,9 @@ export default function subagentExtension(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		widgetCtx = ctx;
 		baseCwd = ctx.cwd;
+		tmuxConfig = buildTmuxConfig(baseCwd, "subagent");
+		activeWindows.clear();
+		controlHandlers.clear();
 		cleanupAllSessions();
 		clearDashboard();
 		nextRunId = 1;
@@ -1468,5 +1482,12 @@ export default function subagentExtension(pi: ExtensionAPI) {
 		const discovery = discoverAgents(ctx.cwd, "both", BUNDLED_AGENTS_DIR);
 		teams = loadTeams(discovery.projectAgentsDir, "both");
 		registerAgentCommands(ctx.cwd);
+	});
+
+	pi.on("session_shutdown", async () => {
+		// Kill all subagent tmux windows on shutdown
+		await killSession(pi.exec.bind(pi), tmuxConfig);
+		controlHandlers.clear();
+		activeWindows.clear();
 	});
 }

@@ -6,6 +6,7 @@
 
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { Message } from "@mariozechner/pi-ai";
+import type { ControlMessage } from "../../lib/control-channel.ts";
 import type { AgentScope } from "./agents.js";
 
 /** Accumulated token usage and cost for a single agent run. */
@@ -105,3 +106,58 @@ export type AgentManagerResult =
 
 /** Callback for streaming partial results during agent execution. */
 export type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
+
+// ── Control Channel Message Types ────────────────
+
+/** Text delta from streaming assistant output. */
+export interface TextDeltaMessage extends ControlMessage {
+	type: "text_delta";
+	lastLine: string;
+}
+
+/** Tool execution started. */
+export interface ToolStartMessage extends ControlMessage {
+	type: "tool_start";
+	toolName: string;
+}
+
+/** Tool execution completed. */
+export interface ToolEndMessage extends ControlMessage {
+	type: "tool_end";
+	toolName: string;
+	isError: boolean;
+}
+
+/** Usage stats from a completed assistant turn. */
+export interface UsageMessage extends ControlMessage {
+	type: "usage";
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	cost: number;
+	contextTokens: number;
+	model?: string;
+	stopReason?: string;
+	errorMessage?: string;
+}
+
+/** Agent run completed. */
+export interface AgentDoneMessage extends ControlMessage {
+	type: "agent_done";
+}
+
+/** Session name from child agent. */
+export interface SessionNameMessage extends ControlMessage {
+	type: "session_name";
+	name: string;
+}
+
+/** Union of all subagent control messages. */
+export type SubagentControlMessage =
+	| TextDeltaMessage
+	| ToolStartMessage
+	| ToolEndMessage
+	| UsageMessage
+	| AgentDoneMessage
+	| SessionNameMessage;
