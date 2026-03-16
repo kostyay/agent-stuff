@@ -749,13 +749,13 @@ export default function subagentsExtension(pi: ExtensionAPI) {
     },
   });
 
-  // /plan command — start the full planning workflow
-  pi.registerCommand("plan", {
-    description: "Start a planning session: /plan <what to build>",
+  // /agentic-plan command — start the full planning workflow via skill injection
+  pi.registerCommand("agentic-plan", {
+    description: "Start a planning session: /agentic-plan <what to build>",
     handler: async (args, ctx) => {
       const task = (args ?? "").trim();
       if (!task) {
-        ctx.ui.notify("Usage: /plan <what to build>", "warning");
+        ctx.ui.notify("Usage: /agentic-plan <what to build>", "warning");
         return;
       }
 
