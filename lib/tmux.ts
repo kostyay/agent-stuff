@@ -6,6 +6,7 @@
  * depending directly on the pi extension API.
  */
 
+import { createHash } from "node:crypto";
 import { basename, dirname } from "node:path";
 
 /** Function signature matching pi.exec(). */
@@ -27,7 +28,9 @@ export function buildTmuxConfig(cwd: string, prefix: string): TmuxConfig {
 		process.env.CLAUDE_TMUX_SOCKET_DIR ??
 		`${process.env.TMPDIR ?? "/tmp"}/claude-tmux-sockets`;
 	const socketPath = `${socketDir}/claude.sock`;
-	const sessionName = `${prefix}-${sanitizeName(basename(cwd))}`;
+	const dirName = sanitizeName(basename(cwd));
+	const hash = createHash("sha256").update(cwd).digest("hex").slice(0, 3);
+	const sessionName = `${prefix}-${dirName}-${hash}`;
 	return { socketPath, sessionName };
 }
 
