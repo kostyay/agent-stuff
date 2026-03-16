@@ -88,7 +88,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## chore/remove-subagent-extension
+
+
+## fix/type-safety-and-race-conditions
+
+Improved type safety and race condition handling across subagent and ticket extensions (#51). The ticket system now retries ID generation on lock conflicts and uses per-ticket locks during garbage collection to prevent concurrent mutation races, while subagent tool calls include explicit type assertions for content blocks. Enhanced tmux session uniqueness by incorporating a directory hash into session names to avoid collisions in multi-workspace scenarios. Renamed the `/plan` command to `/agentic-plan` to clarify its role in the skill-injection planning workflow. Removed approximately 1,300 lines of test scaffolding that was no longer actively maintained.
+
+## [1.0.35](https://github.com/kostyay/agent-stuff/pull/49) - 2026-03-16
 
 Removed the subagent extension's legacy architecture and consolidated its functionality into a streamlined implementation (#49). The extension previously delegated tasks to isolated child `pi` processes via spawned subagents with UDP control channels and a complex multi-file structure (agent-manager, runner, dashboard, log-viewer); this refactor eliminates ~2,100 lines of overhead code while preserving core agent execution capabilities through a simplified index.ts and new session/test modules. Users retain access to agent execution, team filtering, and session management through a leaner codebase with better maintainability and reduced operational complexity.
 
