@@ -4,6 +4,11 @@ import { Text } from "@mariozechner/pi-tui";
 import { dirname, join } from "node:path";
 import { readdirSync, statSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
+
+/** Resolve the global agent config directory from PI_CODING_AGENT_DIR, falling back to ~/.pi/agent. */
+function getAgentDir(): string {
+  return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+}
 import {
   isCmuxAvailable,
   createSurface,
@@ -23,7 +28,7 @@ const SubagentParams = Type.Object({
   name: Type.String({ description: "Display name for the subagent" }),
   task: Type.String({ description: "Task/prompt for the sub-agent" }),
   agent: Type.Optional(
-    Type.String({ description: "Agent name to load defaults from (e.g. 'worker', 'scout', 'reviewer'). Reads ~/.pi/agent/agents/<name>.md for model, tools, skills." })
+    Type.String({ description: "Agent name to load defaults from (e.g. 'worker', 'scout', 'reviewer'). Reads $PI_CODING_AGENT_DIR/agents/<name>.md for model, tools, skills." })
   ),
   systemPrompt: Type.Optional(
     Type.String({ description: "Appended to system prompt (role instructions)" })
@@ -48,7 +53,7 @@ interface AgentDefaults {
 function loadAgentDefaults(agentName: string): AgentDefaults | null {
   const paths = [
     join(process.cwd(), ".pi", "agents", `${agentName}.md`),
-    join(homedir(), ".pi", "agent", "agents", `${agentName}.md`),
+    join(getAgentDir(), "agents", `${agentName}.md`),
   ];
   for (const p of paths) {
     if (!existsSync(p)) continue;
@@ -76,7 +81,7 @@ function loadAgentDefaults(agentName: string): AgentDefaults | null {
 /**
  * Resolve a skill name or path to a full filesystem path.
  * Checks: as-is (absolute/relative), project .pi/skills/<name>/SKILL.md,
- * then user ~/.pi/agent/skills/<name>/SKILL.md.
+ * then user $PI_CODING_AGENT_DIR/skills/<name>/SKILL.md.
  */
 function resolveSkillPath(nameOrPath: string): string {
   // Already an absolute path or file path
@@ -87,7 +92,7 @@ function resolveSkillPath(nameOrPath: string): string {
   const projectPath = join(process.cwd(), ".pi", "skills", nameOrPath, "SKILL.md");
   if (existsSync(projectPath)) return projectPath;
   // Check user-global
-  const userPath = join(homedir(), ".pi", "agent", "skills", nameOrPath, "SKILL.md");
+  const userPath = join(getAgentDir(), "skills", nameOrPath, "SKILL.md");
   if (existsSync(userPath)) return userPath;
   // Fallback: return as-is (pi will error if not found)
   return nameOrPath;
@@ -430,7 +435,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
     label: "List Subagents",
     description:
       "List all available subagent definitions. " +
-      "Scans project-local .pi/agents/ and global ~/.pi/agent/agents/. " +
+      "Scans project-local .pi/agents/ and global $PI_CODING_AGENT_DIR/agents/. " +
       "Project-local agents override global ones with the same name.",
     parameters: Type.Object({}),
 
@@ -438,7 +443,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
       const agents = new Map<string, { name: string; description?: string; model?: string; source: string }>();
 
       const dirs = [
-        { path: join(homedir(), ".pi", "agent", "agents"), source: "global" },
+        { path: join(getAgentDir(), "agents"), source: "global" },
         { path: join(process.cwd(), ".pi", "agents"), source: "project" },
       ];
 
@@ -739,7 +744,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 
       const defs = loadAgentDefaults(agentName);
       if (!defs) {
-        ctx.ui.notify(`Agent "${agentName}" not found in ~/.pi/agent/agents/ or .pi/agents/`, "error");
+        ctx.ui.notify(`Agent "${agentName}" not found in ${getAgentDir()}/agents/ or .pi/agents/`, "error");
         return;
       }
 
