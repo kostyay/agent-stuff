@@ -20,98 +20,42 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, Text, truncateToWidth } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { basename, dirname } from "node:path";
+import {
+	type TmuxConfig,
+	buildTmuxConfig,
+	capturePane,
+	createWindow,
+	deriveTaskName,
+	formatDuration,
+	killSession,
+	killWindow,
+	listWindowNames,
+	listWindowState,
+	uniqueName,
+} from "../lib/tmux.ts";
+
+// Re-export for backward compatibility (tests, status-bar, etc.)
+export { COMPOUND_SUBCOMMANDS, deriveTaskName, formatDuration, sanitizeName, uniqueName } from "../lib/tmux.ts";
 
 /** Tracked background task metadata. */
 export interface BgTask {
 	name: string;
 	command: string;
 	startedAt: number;
-}
-
-/** Subcommands that take a target argument (e.g. `npm run dev` → `npm-dev`). */
-export const COMPOUND_SUBCOMMANDS = new Set([
-	"run", "start", "exec", "test", "build", "serve", "watch", "dev",
-]);
-
-/** Derive a short, meaningful tmux window name from a command string. */
-export function deriveTaskName(command: string): string {
-	const trimmed = command.trim();
-	const parts = trimmed.split(/\s+/);
-	const base = basename(parts[0] ?? "task");
-
-	if (parts.length <= 1) return sanitizeName(base);
-
-	const subcommand = parts[1] ?? "";
-	if (COMPOUND_SUBCOMMANDS.has(subcommand)) {
-		const target = parts[2] ?? subcommand;
-		return sanitizeName(`${base}-${target}`);
-	}
-
-	return sanitizeName(`${base}-${subcommand}`);
-}
-
-/** Sanitize a string for use as a tmux window name. */
-export function sanitizeName(raw: string): string {
-	return raw
-		.replace(/[^a-zA-Z0-9._-]/g, "-")
-		.replace(/-+/g, "-")
-		.replace(/^-|-$/g, "")
-		.slice(0, 30) || "task";
-}
-
-/** Ensure the window name is unique among tracked tasks. */
-export function uniqueName(desired: string, tasks: Map<string, BgTask>): string {
-	if (!tasks.has(desired)) return desired;
-	for (let i = 2; i < 100; i++) {
-		const candidate = `${desired}-${i}`;
-		if (!tasks.has(candidate)) return candidate;
-	}
-	return `${desired}-${Date.now()}`;
-}
-
-/** Format elapsed seconds as compact duration string. */
-export function formatDuration(ms: number): string {
-	const sec = Math.floor(ms / 1000);
-	if (sec < 60) return `${sec}s`;
-	if (sec < 3600) return `${Math.floor(sec / 60)}m${sec % 60}s`;
-	const h = Math.floor(sec / 3600);
-	const m = Math.floor((sec % 3600) / 60);
-	return `${h}h${m}m`;
+	/** Whether this task is a subagent (shown with [AGENT] badge). */
+	isAgent?: boolean;
 }
 
 export default function bgrunExtension(pi: ExtensionAPI) {
 	const tasks = new Map<string, BgTask>();
-	let socketPath = "";
-	let sessionName = "";
+	let config: TmuxConfig = { socketPath: "", sessionName: "" };
 
-	/** Resolve tmux socket and session name from cwd. */
+	/** Bind exec for convenience. */
+	const exec = pi.exec.bind(pi);
+
+	/** Resolve tmux config from cwd. */
 	function initTmux(cwd: string): void {
-		const socketDir = process.env.CLAUDE_TMUX_SOCKET_DIR
-			?? `${process.env.TMPDIR ?? "/tmp"}/claude-tmux-sockets`;
-		socketPath = `${socketDir}/claude.sock`;
-		sessionName = `bgrun-${sanitizeName(basename(cwd))}`;
-	}
-
-	/** Run a tmux command and return stdout. Throws on non-zero exit. */
-	async function tmux(args: string[]): Promise<string> {
-		const result = await pi.exec("tmux", ["-S", socketPath, ...args], { timeout: 5000 });
-		if (result.code !== 0) {
-			throw new Error(`tmux ${args[0]} failed (code ${result.code}): ${result.stderr.trim()}`);
-		}
-		return result.stdout.trim();
-	}
-
-	/** Ensure the tmux session exists. Creates socket dir + session if missing. */
-	async function ensureSession(): Promise<void> {
-		const socketDir = dirname(socketPath);
-		await pi.exec("mkdir", ["-p", socketDir]);
-
-		try {
-			await tmux(["has-session", "-t", sessionName]);
-		} catch {
-			await tmux(["new-session", "-d", "-s", sessionName, "-n", "_control"]);
-		}
+		config = buildTmuxConfig(cwd, "bgrun");
 	}
 
 	/** Emit stats event for status-bar. */
@@ -119,41 +63,17 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 		pi.events.emit("bgrun:stats", { running: tasks.size });
 	}
 
-	/** Query tmux for window names and their pane_dead status. */
-	async function listWindowState(): Promise<Map<string, boolean>> {
-		try {
-			const out = await tmux([
-				"list-windows", "-t", sessionName,
-				"-F", "#{window_name}\t#{pane_dead}",
-			]);
-			const state = new Map<string, boolean>();
-			for (const line of out.split("\n").filter(Boolean)) {
-				const tab = line.indexOf("\t");
-				const name = tab >= 0 ? line.slice(0, tab) : line;
-				const dead = tab >= 0 && line.slice(tab + 1) === "1";
-				state.set(name, dead);
-			}
-			return state;
-		} catch {
-			return new Map();
-		}
-	}
-
 	/** Remove tasks whose tmux windows no longer exist or whose panes have exited. */
 	async function pruneDead(): Promise<void> {
-		const windowState = await listWindowState();
+		const windowState = await listWindowState(exec, config);
 
 		let pruned = false;
 		for (const name of tasks.keys()) {
 			if (!windowState.has(name)) {
-				// Window gone entirely
 				tasks.delete(name);
 				pruned = true;
 			} else if (windowState.get(name)) {
-				// Pane exited — kill the remain-on-exit window and remove task
-				try {
-					await tmux(["kill-window", "-t", `${sessionName}:${name}`]);
-				} catch { /* already gone */ }
+				await killWindow(exec, config, name);
 				tasks.delete(name);
 				pruned = true;
 			}
@@ -163,22 +83,9 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 
 	/** Start a new background task. Returns the task metadata. */
 	async function startTask(command: string): Promise<BgTask> {
-		await ensureSession();
-
 		const rawName = deriveTaskName(command);
 		const name = uniqueName(rawName, tasks);
-
-		// Run command as the pane process so it exits when done.
-		// remain-on-exit keeps the window for output capture after exit.
-		await tmux([
-			"new-window", "-t", sessionName, "-n", name,
-			"zsh", "-c", command,
-		]);
-		await tmux([
-			"set-option", "-t", `${sessionName}:${name}`,
-			"remain-on-exit", "on",
-		]);
-
+		await createWindow(exec, config, name, command);
 		const task: BgTask = { name, command, startedAt: Date.now() };
 		tasks.set(name, task);
 		emitStats();
@@ -186,25 +93,13 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 	}
 
 	/** Capture last N lines from a task's tmux pane. */
-	async function captureOutput(taskName: string, lines = 200): Promise<string> {
-		try {
-			return await tmux([
-				"capture-pane", "-p", "-J",
-				"-t", `${sessionName}:${taskName}`,
-				"-S", `-${lines}`,
-			]);
-		} catch {
-			return "(unable to capture output)";
-		}
+	async function captureTaskOutput(taskName: string, lines = 200): Promise<string> {
+		return capturePane(exec, config, taskName, lines);
 	}
 
 	/** Kill a specific task's tmux window. */
 	async function killTask(taskName: string): Promise<boolean> {
-		try {
-			await tmux(["kill-window", "-t", `${sessionName}:${taskName}`]);
-		} catch {
-			// Window may already be dead
-		}
+		await killWindow(exec, config, taskName);
 		const removed = tasks.delete(taskName);
 		emitStats();
 		return removed;
@@ -212,11 +107,7 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 
 	/** Kill all tasks and the tmux session. */
 	async function killAll(): Promise<void> {
-		try {
-			await tmux(["kill-session", "-t", sessionName]);
-		} catch {
-			// Session may not exist
-		}
+		await killSession(exec, config);
 		tasks.clear();
 		emitStats();
 	}
@@ -224,18 +115,11 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 	/** Rebuild task list by scanning existing tmux windows. */
 	async function syncFromTmux(): Promise<void> {
 		tasks.clear();
-		try {
-			const out = await tmux([
-				"list-windows", "-t", sessionName,
-				"-F", "#{window_name}",
-			]);
-			const now = Date.now();
-			for (const name of out.split("\n")) {
-				if (!name || name === "_control") continue;
-				tasks.set(name, { name, command: "(reconnected)", startedAt: now });
-			}
-		} catch {
-			// No session — that's fine
+		const names = await listWindowNames(exec, config);
+		const now = Date.now();
+		for (const name of names) {
+			const isAgent = name.startsWith("agent:");
+			tasks.set(name, { name, command: "(reconnected)", startedAt: now, isAgent });
 		}
 		emitStats();
 	}
@@ -284,7 +168,7 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 			const task = await startTask(command);
 			ctx.ui.notify(
 				`Started: ${task.name}\n` +
-				`Monitor: tmux -S "${socketPath}" attach -t ${sessionName}:${task.name}`,
+				`Monitor: tmux -S "${config.socketPath}" attach -t ${config.sessionName}:${task.name}`,
 				"info",
 			);
 		},
@@ -356,7 +240,7 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 					const task = list[selectedIndex];
 					if (task) {
 						capturedTaskName = task.name;
-						captureOutput(task.name, 200).then((out) => {
+						captureTaskOutput(task.name, 200).then((out) => {
 							capturedOutput = out;
 							scrollOffset = 0;
 							view = "detail";
@@ -404,7 +288,7 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 					return;
 				}
 				if (data === "r") {
-					captureOutput(capturedTaskName, 200).then((out) => {
+					captureTaskOutput(capturedTaskName, 200).then((out) => {
 						capturedOutput = out;
 						refresh();
 					});
@@ -428,10 +312,11 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 					const prefix = selected ? theme.fg("accent", " ▸ ") : "   ";
 					const elapsed = formatDuration(Date.now() - task.startedAt);
 					const icon = theme.fg("success", "●");
+					const badge = task.isAgent ? theme.fg("warning", " [AGENT]") : "";
 
 					const nameStr = selected
-						? theme.fg("accent", task.name)
-						: theme.fg("text", task.name);
+						? theme.fg("accent", task.name) + badge
+						: theme.fg("text", task.name) + badge;
 					const cmdStr = theme.fg("muted", task.command);
 					const timeStr = theme.fg("dim", elapsed);
 
@@ -530,7 +415,7 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 						throw new Error("'command' is required for 'start' action");
 					}
 					const task = await startTask(params.command);
-					const monitorCmd = `tmux -S "${socketPath}" attach -t ${sessionName}:${task.name}`;
+					const monitorCmd = `tmux -S "${config.socketPath}" attach -t ${config.sessionName}:${task.name}`;
 					return {
 						content: [{
 							type: "text" as const,
@@ -565,7 +450,7 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 					if (!tasks.has(params.task_id)) {
 						throw new Error(`Task '${params.task_id}' not found`);
 					}
-					const output = await captureOutput(params.task_id);
+					const output = await captureTaskOutput(params.task_id);
 					return {
 						content: [{
 							type: "text" as const,
