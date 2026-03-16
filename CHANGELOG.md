@@ -85,11 +85,18 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## refactor/extract-tmux-library
+
+
+
+## chore/remove-subagent-extension
+
+Removed the subagent extension's legacy architecture and consolidated its functionality into a streamlined implementation (#49). The extension previously delegated tasks to isolated child `pi` processes via spawned subagents with UDP control channels and a complex multi-file structure (agent-manager, runner, dashboard, log-viewer); this refactor eliminates ~2,100 lines of overhead code while preserving core agent execution capabilities through a simplified index.ts and new session/test modules. Users retain access to agent execution, team filtering, and session management through a leaner codebase with better maintainability and reduced operational complexity.
+
+## [1.0.34](https://github.com/kostyay/agent-stuff/pull/48) - 2026-03-16
 
 Extracted tmux primitives to a reusable shared library (`lib/tmux.ts`) to eliminate duplication between `bgrun` and the subagent runner (#48). The new library provides a clean abstraction for session management, window creation, and pane capture through an injectable `exec` function, enabling both extensions to leverage consistent tmux handling without tight coupling to the pi extension API. This refactor improves maintainability, enables safer window naming with collision detection, and sets the foundation for future tmux-based features. The bgrun extension now re-exports key utilities for backward compatibility with existing tests and plugins.
 
-## refactor/extract-ask-question-ui
+## [1.0.34](https://github.com/kostyay/agent-stuff/pull/47) - 2026-03-16
 
 Extracts the interactive ask-question UI logic from kbrainstorm into a reusable library module (#47), enabling other extensions to leverage the same TUI patterns for Q&A workflows. The refactor moves ~328 lines of TUI rendering, editor state management, and option-handling logic into `lib/ask-question-ui.ts` while reducing kbrainstorm to a thin wrapper, and includes comprehensive test coverage (488 lines) to ensure reliability of the extracted component. This improves code maintainability and sets up a foundation for consistent user-facing question/answer interactions across the extension ecosystem.
 
