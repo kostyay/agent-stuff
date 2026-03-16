@@ -572,7 +572,8 @@ export default function ticketExtension(pi: ExtensionAPI) {
 		const dir = getTicketsDir(ctx.cwd);
 		await ensureDir(dir);
 		const settings = await readSettings(dir);
-		await garbageCollect(dir, settings);
+		const tryLock = (id: string) => acquireLock(dir, id, ctx);
+		await garbageCollect(dir, settings, tryLock);
 		refreshUI(ctx);
 	});
 
@@ -702,33 +703,49 @@ export default function ticketExtension(pi: ExtensionAPI) {
 					if (!params.title) return errorResult("create", "Error: title required");
 
 					await ensureDir(dir);
-					const id = await generateId(dir, prefix);
-					const ticket: TicketRecord = {
-						id,
-						title: params.title,
-						status: (params.status as TicketStatus) ?? "open",
-						type: (params.type as TicketType) ?? "task",
-						priority: params.priority ?? 2,
-						parent: params.parent,
-						deps: params.deps,
-						external_ref: params.external_ref,
-						tests_passed: false,
-						created_at: new Date().toISOString(),
-						description: params.description ?? "",
-						design: params.design ?? "",
-						acceptance: params.acceptance ?? "",
-						tests: params.tests ?? "",
-						notes: "",
-					};
 
-					const result = await withLock(dir, id, ctx, async () => {
-						await writeTicketFile(getTicketPath(dir, id), ticket);
-						return ticket;
-					});
-					if (isError(result)) return errorResult("create", result.error);
+					// Retry with new IDs if lock fails (handles TOCTOU race
+					// where two processes pick the same random ID).
+					const MAX_CREATE_RETRIES = 5;
+					let createResult: TicketRecord | { error: string } | undefined;
+					for (let attempt = 0; attempt < MAX_CREATE_RETRIES; attempt += 1) {
+						const id = await generateId(dir, prefix);
+						const ticket: TicketRecord = {
+							id,
+							title: params.title,
+							status: (params.status as TicketStatus) ?? "open",
+							type: (params.type as TicketType) ?? "task",
+							priority: params.priority ?? 2,
+							parent: params.parent,
+							deps: params.deps,
+							external_ref: params.external_ref,
+							tests_passed: false,
+							created_at: new Date().toISOString(),
+							description: params.description ?? "",
+							design: params.design ?? "",
+							acceptance: params.acceptance ?? "",
+							tests: params.tests ?? "",
+							notes: "",
+						};
+
+						const result = await withLock(dir, id, ctx, async () => {
+							await writeTicketFile(getTicketPath(dir, id), ticket);
+							return ticket;
+						});
+						if (!isError(result)) {
+							createResult = result;
+							break;
+						}
+						// Last attempt — propagate the error
+						if (attempt === MAX_CREATE_RETRIES - 1) createResult = result;
+					}
+
+					if (!createResult || isError(createResult)) {
+						return errorResult("create", isError(createResult) ? createResult.error : "Failed to create ticket");
+					}
 
 					refreshUI(ctx);
-					return ticketResult("create", ticket);
+					return ticketResult("create", createResult);
 				}
 
 				// ── show ───────────────────────────────────────────────

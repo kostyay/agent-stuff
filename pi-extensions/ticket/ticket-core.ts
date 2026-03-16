@@ -324,8 +324,22 @@ export async function readSettings(dir: string): Promise<TicketSettings> {
 	}
 }
 
-/** Delete closed tickets older than the GC threshold. */
-export async function garbageCollect(dir: string, settings: TicketSettings): Promise<void> {
+/**
+ * Delete closed tickets older than the GC threshold.
+ *
+ * Acquires a per-ticket lock before deleting to avoid racing with
+ * concurrent mutations. Pass `tryLock` to integrate with the extension's
+ * locking mechanism; when omitted, deletes without locking (unsafe in
+ * multi-process scenarios but keeps the function usable standalone).
+ *
+ * @param tryLock - Attempts to lock a ticket by ID. Returns an unlock
+ *   function on success, or `{ error: string }` if already locked.
+ */
+export async function garbageCollect(
+	dir: string,
+	settings: TicketSettings,
+	tryLock?: (id: string) => Promise<(() => Promise<void>) | { error: string }>,
+): Promise<void> {
 	if (!settings.gc) return;
 	let entries: string[];
 	try { entries = await fs.readdir(dir); } catch { return; }
@@ -334,12 +348,20 @@ export async function garbageCollect(dir: string, settings: TicketSettings): Pro
 	await Promise.all(
 		entries.filter((e) => e.endsWith(".md")).map(async (e) => {
 			try {
+				const id = e.slice(0, -3);
 				const content = await fs.readFile(path.join(dir, e), "utf8");
 				const { json } = splitContent(content);
-				const fm = parseTicketFrontMatter(json, e.slice(0, -3));
+				const fm = parseTicketFrontMatter(json, id);
 				if (fm.status !== "closed") return;
 				const created = Date.parse(fm.created_at);
-				if (Number.isFinite(created) && created < cutoff) {
+				if (!Number.isFinite(created) || created >= cutoff) return;
+
+				if (tryLock) {
+					const lock = await tryLock(id);
+					if (isError(lock)) return; // locked by another process — skip
+					try { await fs.unlink(path.join(dir, e)); }
+					finally { await lock(); }
+				} else {
 					await fs.unlink(path.join(dir, e));
 				}
 			} catch { /* ignore */ }

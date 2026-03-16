@@ -384,8 +384,11 @@ export default function subagentsExtension(pi: ExtensionAPI) {
       // Completed
       const exitCode = details?.exitCode ?? 0;
       const elapsed = details?.elapsed != null ? formatElapsed(details.elapsed) : "?";
+      const firstContent = result.content?.[0];
       const summaryText =
-        typeof result.content?.[0]?.text === "string" ? result.content[0].text : "";
+        firstContent && "text" in firstContent && typeof firstContent.text === "string"
+          ? firstContent.text
+          : "";
 
       if (exitCode !== 0) {
         const text =
@@ -511,21 +514,21 @@ export default function subagentsExtension(pi: ExtensionAPI) {
     async execute(_toolCallId, params) {
       if (!isCmuxAvailable()) {
         return {
-          content: [{ type: "text", text: "cmux not available — title not set." }],
-          details: { error: "cmux not available" },
+          content: [{ type: "text" as const, text: "cmux not available — title not set." }],
+          details: { title: "", error: "cmux not available" },
         };
       }
       try {
         renameCurrentTab(params.title);
         renameWorkspace(params.title);
         return {
-          content: [{ type: "text", text: `Title set to: ${params.title}` }],
+          content: [{ type: "text" as const, text: `Title set to: ${params.title}` }],
           details: { title: params.title },
         };
       } catch (err: any) {
         return {
-          content: [{ type: "text", text: `Failed to set title: ${err?.message}` }],
-          details: { error: err?.message },
+          content: [{ type: "text" as const, text: `Failed to set title: ${err?.message}` }],
+          details: { title: "", error: err?.message },
         };
       }
     },
@@ -576,8 +579,11 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 
       const exitCode = details?.exitCode ?? 0;
       const elapsed = details?.elapsed != null ? formatElapsed(details.elapsed) : "?";
+      const firstContent = result.content?.[0];
       const summaryText =
-        typeof result.content?.[0]?.text === "string" ? result.content[0].text : "";
+        firstContent && "text" in firstContent && typeof firstContent.text === "string"
+          ? firstContent.text
+          : "";
 
       if (exitCode !== 0) {
         const text =
