@@ -7,7 +7,7 @@
  * to read-only in ask/plan modes and the appropriate system prompt is
  * injected via `before_agent_start`.
  *
- * **`/plan <prompt>`** — One-shot: enters plan mode and sends the prompt.
+ * **`/create-plan <prompt>`** — One-shot: enters plan mode and sends the prompt.
  * **`/ask <question>`** — One-shot: enters ask mode and sends the question.
  *
  * Modes:
@@ -250,14 +250,14 @@ export default function planAskExtension(pi: ExtensionAPI) {
 		return `${systemPrompt}\n\nYour task: ${prompt}`;
 	}
 
-	// ── /plan command ────────────────────────────────────────────────
+	// ── /create-plan command ─────────────────────────────────────────
 
-	pi.registerCommand("plan", {
-		description: "Enter planning mode: /plan <describe what you want to do>",
+	pi.registerCommand("create-plan", {
+		description: "Enter planning mode: /create-plan <describe what you want to do>",
 		handler: async (args, ctx) => {
 			const prompt = args?.trim();
 			if (!prompt) {
-				ctx.ui.notify("Usage: /plan <describe what you want to do>", "warning");
+				ctx.ui.notify("Usage: /create-plan <describe what you want to do>", "warning");
 				return;
 			}
 

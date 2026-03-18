@@ -92,6 +92,11 @@ All notable changes to agent-stuff are documented here.
 
 
 
+
+## chore/remove-completed-tickets
+
+Removed 18 completed ticket files from `.tickets/` directory and refactored extension code for improved maintainability (#54). The status-bar extension received significant updates to its event handling and rendering logic, reducing complexity while the plan-ask extension saw streamlined initialization. Test suite was modernized with cleaner mocks and improved coverage structure, cutting test file sizes by ~50% through removal of obsolete test cases tied to resolved tickets.
+
 ## refactor/use-agent-dir-env-var
 
 This refactor centralizes agent and session data storage configuration through the `PI_CODING_AGENT_DIR` environment variable, replacing hard-coded `~/.pi` paths across multiple extensions (#52). The change improves portability and allows users to customize storage locations via environment variable, with automatic fallback to `$HOME/.pi/agent` when unset. Documentation and control socket paths in `control.ts`, `sandbox/index.ts`, `session-breakdown.ts`, and `stash.ts` have been updated to reference the new variable. Additionally, closed ticket references and subagent infrastructure (unused agent definitions and test suites) have been removed to reduce codebase complexity.
