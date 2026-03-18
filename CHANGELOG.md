@@ -90,7 +90,13 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## fix/type-safety-and-race-conditions
+
+
+## refactor/use-agent-dir-env-var
+
+This refactor centralizes agent and session data storage configuration through the `PI_CODING_AGENT_DIR` environment variable, replacing hard-coded `~/.pi` paths across multiple extensions (#52). The change improves portability and allows users to customize storage locations via environment variable, with automatic fallback to `$HOME/.pi/agent` when unset. Documentation and control socket paths in `control.ts`, `sandbox/index.ts`, `session-breakdown.ts`, and `stash.ts` have been updated to reference the new variable. Additionally, closed ticket references and subagent infrastructure (unused agent definitions and test suites) have been removed to reduce codebase complexity.
+
+## [1.0.36](https://github.com/kostyay/agent-stuff/pull/51) - 2026-03-16
 
 Improved type safety and race condition handling across subagent and ticket extensions (#51). The ticket system now retries ID generation on lock conflicts and uses per-ticket locks during garbage collection to prevent concurrent mutation races, while subagent tool calls include explicit type assertions for content blocks. Enhanced tmux session uniqueness by incorporating a directory hash into session names to avoid collisions in multi-workspace scenarios. Renamed the `/plan` command to `/agentic-plan` to clarify its role in the skill-injection planning workflow. Removed approximately 1,300 lines of test scaffolding that was no longer actively maintained.
 
