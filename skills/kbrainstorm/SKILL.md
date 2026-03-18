@@ -13,180 +13,90 @@ Start by understanding the current project context, then ask questions to refine
 
 ## How to Ask Questions
 
-Use the `interview` tool for **every** question during brainstorming. It opens a native form window where the user can select options, type freeform answers, and see rich context including code blocks, tables, and diagrams.
+Use the `ask_question` tool for **every** question during brainstorming. It shows an interactive TUI where the user can select options or type freeform answers.
 
-### Sequential questions (default)
+**One question per call.** Each answer informs the next question. Never batch multiple questions — the whole point is steering the conversation based on each response.
 
-Ask one question per `interview` call when each answer influences the next. Process the response before asking the next question.
+### Multiple choice
+
+Provide `options` when there are clear alternatives. Always include a descriptive label; add `description` for extra context.
 
 ```
-interview({
-  questions: JSON.stringify({
-    title: "Feature Purpose",
-    description: "Help me understand scope and target audience",
-    questions: [{
-      id: "purpose",
-      type: "single",
-      question: "What is the primary purpose of this feature?",
-      options: [
-        { label: "User onboarding", description: "New user registration and setup flow" },
-        { label: "Data export", description: "Export data in various formats" },
-        { label: "Admin dashboard", description: "Internal monitoring and management" }
-      ],
-      recommended: { option: "User onboarding", context: "Based on the recent signup page changes" },
-      conviction: "slight"
-    }]
-  })
+ask_question({
+  question: "What is the primary purpose of this feature?",
+  options: [
+    { label: "User onboarding", description: "New user registration and setup flow" },
+    { label: "Data export", description: "Export data in various formats" },
+    { label: "Admin dashboard", description: "Internal monitoring and management" }
+  ]
 })
 ```
 
-### Batching independent questions
+The user can pick an option or type a custom answer.
 
-When 2-4 questions don't depend on each other's answers, batch them into a single `interview` call. This reduces round-trips without losing information.
+### Open-ended
+
+Omit `options` for questions needing freeform answers.
 
 ```
-interview({
-  questions: JSON.stringify({
-    title: "Initial Requirements",
-    description: "Review my suggestions and adjust as needed",
-    questions: [
-      {
-        id: "target_users",
-        type: "single",
-        question: "Who are the target users?",
-        options: ["Internal team", "External customers", "Both"],
-        weight: "critical"
-      },
-      {
-        id: "constraints",
-        type: "multi",
-        question: "Which constraints apply?",
-        options: ["Must work offline", "Mobile-first", "Backward compatible", "Real-time updates"]
-      },
-      {
-        id: "timeline",
-        type: "single",
-        question: "What's the timeline?",
-        options: ["Days", "Weeks", "No rush"],
-        weight: "minor"
-      }
-    ]
-  })
+ask_question({
+  question: "What existing patterns in the codebase should we follow?",
+  context: "I'll look at those files for reference"
 })
 ```
 
-### Open-ended questions
+### With context
 
-Use `type: "text"` for questions needing freeform answers.
+Use the `context` field to show background information, constraints, or reasoning below the question.
 
 ```
-interview({
-  questions: JSON.stringify({
-    title: "Codebase Patterns",
-    questions: [{
-      id: "patterns",
-      type: "text",
-      question: "What existing patterns in the codebase should we follow?",
-      description: "I'll look at those files for reference"
-    }]
-  })
+ask_question({
+  question: "Which approach should we go with?",
+  context: "Approach A is simpler but limited to 1000 items. Approach B handles scale but requires a migration.",
+  options: [
+    { label: "Approach A: Simple adapter", description: "Wraps existing code, minimal changes" },
+    { label: "Approach B: Native rewrite", description: "Better perf, requires migration" }
+  ]
 })
 ```
 
-### Presenting approaches with context
+## Presenting Designs
 
-Use `info` type questions alongside choice questions to show analysis, code snippets, or diagrams before asking the user to pick.
+When presenting analysis, comparisons, or design sections:
+
+1. **Print to chat** — Write the content as regular markdown output (tables, diagrams, code blocks all work).
+2. **Then ask for confirmation** — Use `ask_question` to check if the section looks right.
 
 ```
-interview({
-  questions: JSON.stringify({
-    title: "Architecture Decision",
-    description: "I've analyzed the codebase and have two approaches",
-    questions: [
-      {
-        id: "analysis",
-        type: "info",
-        question: "Trade-off Analysis",
-        media: {
-          type: "table",
-          table: {
-            headers: ["", "Approach A", "Approach B"],
-            rows: [
-              ["Complexity", "Low", "Medium"],
-              ["Performance", "Good", "Better"],
-              ["Migration effort", "None", "2-3 hours"]
-            ]
-          }
-        }
-      },
-      {
-        id: "approach",
-        type: "single",
-        question: "Which approach should we go with?",
-        options: [
-          { label: "Approach A: Simple adapter", description: "Wraps existing code, minimal changes" },
-          { label: "Approach B: Native rewrite", description: "Better perf, requires migration" }
-        ],
-        recommended: { option: "Approach A: Simple adapter", context: "Lower risk, can upgrade later" },
-        weight: "critical"
-      }
-    ]
-  })
+# (agent prints design section as markdown to chat)
+
+ask_question({
+  question: "Does this section look right?",
+  options: [
+    { label: "Looks good, continue" },
+    { label: "Needs changes", description: "I'll explain what to adjust" }
+  ]
 })
 ```
 
-### Design section validation
-
-When presenting a design section for validation, use `info` to show the design and a `single` question to confirm.
-
-```
-interview({
-  questions: JSON.stringify({
-    title: "Design Review: Data Layer",
-    questions: [
-      {
-        id: "design_section",
-        type: "info",
-        question: "Proposed Data Layer Design",
-        media: {
-          type: "mermaid",
-          mermaid: "graph LR\n  A[API] --> B[Cache]\n  B --> C[Store]"
-        }
-      },
-      {
-        id: "approval",
-        type: "single",
-        question: "Does this section look right?",
-        options: [
-          { label: "Looks good, continue" },
-          { label: "Needs changes", description: "I'll explain what to adjust" }
-        ]
-      }
-    ]
-  })
-})
-```
+For approach comparisons, print a markdown table comparing trade-offs, then ask which approach to take.
 
 ## The Process
 
 **Understanding the idea:**
 - Check out the current project state first (files, docs, recent commits)
-- Ask questions using the `interview` tool
-- Batch independent questions (2-4 max) when answers don't depend on each other
-- Keep sequential flow when answers influence the next question
+- Ask questions one at a time using `ask_question`
 - Focus on understanding: purpose, constraints, success criteria
 
 **Exploring approaches:**
 - Propose 2-3 different approaches with trade-offs
-- Use `info` questions with tables or mermaid diagrams to present comparisons
-- Set `recommended` with your pick and reasoning; use `conviction: "strong"` when confident
-- Use `weight: "critical"` for the approach selection question
+- Print a comparison table to chat, then use `ask_question` to pick
+- Include your recommendation and reasoning in the `context` field
 
 **Presenting the design:**
 - Once you believe you understand what you're building, present the design
 - Break it into sections of 200-300 words
-- Use `info` + confirmation pattern to validate each section
-- Include mermaid diagrams for architecture and data flow where helpful
+- Print each section as markdown, then confirm with `ask_question`
 - Cover: architecture, components, data flow, error handling, testing
 - Be ready to go back and clarify if something doesn't make sense
 
@@ -194,22 +104,17 @@ interview({
 
 **Documentation:**
 - Write the validated design to `docs/plans/YYYY-MM-DD-<topic>-design.md`
-- Use elements-of-style:writing-clearly-and-concisely skill if available
 - Commit the design document to git
 
 **Implementation (if continuing):**
-- Ask: "Ready to set up for implementation?" (using `interview`)
-- Use superpowers:using-git-worktrees to create isolated workspace if available
-- Use superpowers:writing-plans to create detailed implementation plan if available
+- Ask: "Ready to set up for implementation?" using `ask_question`
 
 ## Key Principles
 
-- **Always use `interview`** — Never ask questions in plain text; always use the tool
-- **Batch when independent** — Group 2-4 unrelated questions to reduce round-trips
-- **Sequential when dependent** — One interview call per question when answers inform the next
-- **Use recommendations** — Always set `recommended` when you have an opinion; use `conviction` to signal confidence
-- **Rich context** — Use `info` panels with tables, mermaid diagrams, and code blocks to present analysis
-- **Weight signals importance** — Mark key decisions `"critical"`, low-stakes questions `"minor"`
+- **Always use `ask_question`** — Never ask questions in plain text; always use the tool
+- **One question per call** — Each answer must inform the next question
+- **Never batch** — Do not ask multiple questions at once
+- **Use context wisely** — Put background info, constraints, and your reasoning in the `context` field
 - **YAGNI ruthlessly** — Remove unnecessary features from all designs
 - **Explore alternatives** — Always propose 2-3 approaches before settling
 - **Incremental validation** — Present design in sections, validate each

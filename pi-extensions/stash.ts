@@ -11,7 +11,7 @@
  *
  * Persistence:
  * - Stash survives session switches and restarts.
- * - Stored per-workspace in ~/.pi/stash/<encoded-cwd>.txt
+ * - Stored per-workspace in $PI_CODING_AGENT_DIR/stash/<encoded-cwd>.txt
  *
  * Shows a widget above the editor with a truncated preview of the stashed text.
  */
@@ -22,7 +22,7 @@ import { join } from "node:path";
 
 const WIDGET_ID = "stash";
 const MAX_PREVIEW_LENGTH = 60;
-const STASH_DIR = join(process.env.PI_CODING_AGENT_DIR ?? join(process.env.HOME ?? "", ".pi"), "stash");
+const STASH_DIR = join(process.env.PI_CODING_AGENT_DIR ?? join(process.env.HOME ?? "", ".pi", "agent"), "stash");
 
 /**
  * Build the file path for a workspace's stash file.

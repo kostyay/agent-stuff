@@ -6,7 +6,7 @@
  * bubblewrap on Linux).
  *
  * Config files (merged, project takes precedence):
- * - ~/.pi/agent/sandbox.json   (global)
+ * - $PI_CODING_AGENT_DIR/sandbox.json   (global)
  * - <cwd>/.pi/sandbox.json     (project-local)
  *
  * Array fields (allowedDomains, denyRead, etc.) are unioned across layers,
@@ -131,7 +131,7 @@ function mergeConfig(base: SandboxConfig, overrides: Partial<SandboxConfig>): Sa
 }
 
 function loadConfig(cwd: string): SandboxConfig {
-	const globalPath = join(homedir(), ".pi", "agent", "sandbox.json");
+	const globalPath = join(getProfileDir(), "sandbox.json");
 	const projectPath = join(cwd, ".pi", "sandbox.json");
 
 	let config = { ...DEFAULT_CONFIG };
@@ -155,7 +155,7 @@ function loadConfig(cwd: string): SandboxConfig {
 
 /**
  * Resolve the profile directory from PI_CODING_AGENT_DIR env var.
- * Falls back to ~/.pi/agent when unset.
+ * Falls back to $HOME/.pi/agent when unset.
  */
 function getProfileDir(): string {
 	return process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");

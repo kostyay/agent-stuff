@@ -7,7 +7,7 @@
  * - Thinking-level border color derived from mode or model config
  * - Prompt history loaded from current and previous sessions
  *
- * Modes are stored globally (~/.pi/agent/modes.json) or per-project (.pi/modes.json).
+ * Modes are stored globally ($PI_CODING_AGENT_DIR/modes.json) or per-project (.pi/modes.json).
  * Multiple running pi sessions use file-locking to avoid clobbering each other.
  */
 
