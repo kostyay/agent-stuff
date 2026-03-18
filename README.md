@@ -40,6 +40,7 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | [`notify.ts`](pi-extensions/notify.ts) | Desktop notifications (OSC 777) when the agent finishes and is waiting for input |
 | [`op-timer.ts`](pi-extensions/op-timer.ts) | Live elapsed-time counter above the editor while the agent works — shows total operation and current tool execution duration |
 | [`plan-ask.ts`](pi-extensions/plan-ask.ts) | `/plan`, `/ask` commands and Shift+Tab mode rotation (🤖 agent → ❓ ask → 📋 plan) with read-only tool restrictions, clear-context-and-implement flow, and temp plan persistence |
+| [`pr.ts`](pi-extensions/pr.ts) | `/pr` command — checks if the current branch has an open pull request and opens it in the default browser via `gh` |
 | [`prompt-editor.ts`](pi-extensions/prompt-editor.ts) | Prompt mode selector (default/fast/precise) with per-mode model & thinking persistence |
 | [`review.ts`](pi-extensions/review.ts) | `/review` command — code review for uncommitted changes, PRs, or specific commits with optional auto-fix loop |
 | [`sandbox/`](pi-extensions/sandbox) | OS-level sandboxing for bash commands via `sandbox-exec` (macOS) / bubblewrap (Linux) with merged global+project config, per-directory state persistence, and network isolation |
@@ -48,7 +49,6 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | [`simplify.ts`](pi-extensions/simplify.ts) | `/simplify` command — detects the dominant language of changed files and runs the matching code-simplifier skill; accepts explicit file paths or falls back to git; auto-proposes after agent turns that modify source files with configurable threshold, file-hash dedup, and session-isolated queuing (`autoSimplify` setting) |
 | [`stash.ts`](pi-extensions/stash.ts) | Ctrl+Shift+S stashes the current editor draft for a quick side-question; auto-restores after the agent responds |
 | [`status-bar.ts`](pi-extensions/status-bar.ts) | Rich three-line footer with model, context meter, cache/cost stats, git status, turn counter, color-coded profile badge, sandbox status, event-driven ticket/bgrun stats, streaming speed indicator, and thinking level display |
-| [`subagent/`](pi-extensions/subagent) | `subagent` tool + `/agentic-plan` command — delegates tasks to specialized agents in isolated context windows with single, parallel, and chain modes; includes live dashboard, session persistence, teams, workflow prompts, built-in agents (worker, planner, reviewer, scout, code), and a skill-injection planning workflow via cmux |
 | [`whimsical.ts`](pi-extensions/whimsical.ts) | Replaces "Thinking..." with random phrases like "Reticulating splines..." and "Consulting the void..." |
 | [`whoami.ts`](pi-extensions/whoami.ts) | `/whoami` command — prints the masked API key used for the current model's requests |
 
@@ -61,6 +61,15 @@ Reusable utilities in [`lib/`](lib), importable by extensions:
 | [`changelog.ts`](lib/changelog.ts) | Pure-logic changelog parser — parses, splices, and reconciles markdown changelog sections (no I/O) |
 | [`control-channel.ts`](lib/control-channel.ts) | UDP-based communication channel between parent and child processes — used by subagent and session-namer |
 | [`timed-confirm.ts`](lib/timed-confirm.ts) | Timed confirmation dialog with auto-resolve countdown — used by commit/merge workflows |
+| [`tmux.ts`](lib/tmux.ts) | Shared tmux session/window management primitives — session naming with directory hashing, window creation with collision detection, pane capture; used by bgrun and subagent extensions |
+
+### Extension Libraries
+
+Internal utilities in [`pi-extensions/lib/`](pi-extensions/lib), shared across extensions in this package:
+
+| Library | Description |
+|---------|-------------|
+| [`ask-question-ui.ts`](pi-extensions/lib/ask-question-ui.ts) | Reusable TUI for asking a single question — renders freeform text editor or multiple-choice list with inline editing; used by kbrainstorm |
 
 ## Skills
 
