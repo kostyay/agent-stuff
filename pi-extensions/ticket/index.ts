@@ -10,7 +10,11 @@
  * - `ticket` tool with 9 actions (create, show, update, delete, start, close, reopen, list, add-note)
  * - `/ticket` TUI browser with fuzzy search and action menu
  * - `/ticket-create` prompt injection for epic + task breakdown
- * - `/ticket-run-all` automated ticket processing loop with session forking
+ * - `/ticket-run-all` automated ticket processing with auto-run continuation across epics
+ * - `/ticket-run-stop` to halt the auto-run loop after the current ticket
+ * - Auto-close of parent epics when all child tasks are closed
+ * - Auto-continuation: after closing a task, compacts context and sends next task prompt
+ * - Epic transition context: mentions the previously completed epic when moving to a new one
  * - Widget showing current in-progress ticket
  * - Status line with ticket counts
  * - Auto-nudge on agent_end when tickets remain in-progress
@@ -56,13 +60,18 @@ import {
 	LOCK_TTL_MS,
 	VALID_STATUSES,
 	VALID_TYPES,
+	allChildrenClosed,
+	buildAutoRunPrompt,
+	buildEpicContextLine,
 	buildRefinePrompt,
 	buildWorkPrompt,
+	clearAutoRun,
 	ensureDir,
 	filterTickets,
 	formatTicketLine,
 	garbageCollect,
 	generateId,
+	getChildren,
 	getLockPath,
 	getProjectPrefix,
 	getReadyTickets,
@@ -71,12 +80,14 @@ import {
 	isError,
 	listTickets,
 	listTicketsSync,
+	readAutoRun,
 	readSettings,
 	readTicketFile,
 	resolveId,
 	serializeForAgent,
 	serializeListForAgent,
 	statusIcon,
+	writeAutoRun,
 	writeTicketFile,
 } from "./ticket-core.ts";
 
@@ -581,12 +592,47 @@ export default function ticketExtension(pi: ExtensionAPI) {
 	pi.on("session_fork", async (_event, ctx) => refreshUI(ctx));
 	pi.on("session_tree", async (_event, ctx) => refreshUI(ctx));
 
-	// ── Auto-nudge ─────────────────────────────────────────────────────
+	// ── Auto-run continuation + nudge ──────────────────────────────────
 
 	pi.on("agent_end", async (_event, ctx) => {
 		const dir = getTicketsDir(ctx.cwd);
 		const tickets = await listTickets(dir);
 		const inProgress = tickets.filter((t) => t.status === "in_progress");
+
+		// Auto-run: when no tickets are in-progress, advance to the next ready task
+		const autoRun = await readAutoRun(dir);
+		if (autoRun?.active && !inProgress.length) {
+			const ready = getReadyTickets(tickets).filter((t) => t.status === "open" && t.type !== "epic");
+
+			if (!ready.length) {
+				await clearAutoRun(dir);
+				refreshUI(ctx);
+				pi.sendMessage({
+					customType: "ticket-run-all-done",
+					content: "🎉 All tickets processed! Auto-run complete.",
+					display: true,
+				});
+				return;
+			}
+
+			const nextTask = ready[0];
+			const nextRecord = await readTicketFile(getTicketPath(dir, nextTask.id), nextTask.id);
+
+			let prefix = "";
+			if (autoRun.lastCompletedEpicId) {
+				prefix += `✅ Previously completed epic ${autoRun.lastCompletedEpicId} "${autoRun.lastCompletedEpicTitle ?? ""}".\n\n`;
+			}
+			prefix += buildEpicContextLine(tickets, nextTask);
+
+			const prompt = prefix + buildAutoRunPrompt(nextTask, nextRecord, ready.length);
+
+			ctx.compact();
+			refreshUI(ctx);
+			pi.sendUserMessage(prompt);
+			return;
+		}
+
+		// Nudge: remind about in-progress tickets
 		if (!inProgress.length || nudgedThisCycle) return;
 
 		nudgedThisCycle = true;
@@ -679,6 +725,50 @@ export default function ticketExtension(pi: ExtensionAPI) {
 		const resolved = resolveId(id, dir);
 		if (isError(resolved)) return errorResult(action, resolved.error);
 		return resolved;
+	}
+
+	/**
+	 * Auto-close the parent epic when all its children are closed.
+	 * Updates the auto-run state with the completed epic for transition prompts.
+	 * Returns the closed epic and child count, or undefined if nothing was closed.
+	 */
+	async function tryAutoCloseEpic(
+		dir: string,
+		closedTicket: TicketRecord,
+		ctx: ExtensionContext,
+	): Promise<{ epic: TicketRecord; childCount: number } | undefined> {
+		if (!closedTicket.parent) return undefined;
+
+		const allTickets = await listTickets(dir);
+		const parent = allTickets.find((t) => t.id === closedTicket.parent);
+		if (parent?.type !== "epic" || parent.status === "closed") return undefined;
+		if (!allChildrenClosed(allTickets, parent.id)) return undefined;
+
+		const epicResult = await withLock(dir, parent.id, ctx, async () => {
+			const fp = getTicketPath(dir, parent.id);
+			if (!existsSync(fp)) return { error: "not found" } as const;
+			const epic = await readTicketFile(fp, parent.id);
+			epic.status = "closed";
+			epic.assignee = undefined;
+			await writeTicketFile(fp, epic);
+			return epic;
+		});
+		if (isError(epicResult)) return undefined;
+
+		const epic = epicResult as TicketRecord;
+		const childCount = getChildren(allTickets, epic.id).length;
+
+		// Record completed epic in auto-run state for transition prompts
+		const autoRun = await readAutoRun(dir);
+		if (autoRun?.active) {
+			await writeAutoRun(dir, {
+				active: true,
+				lastCompletedEpicId: epic.id,
+				lastCompletedEpicTitle: epic.title,
+			});
+		}
+
+		return { epic, childCount };
 	}
 
 	// ── ticket tool ────────────────────────────────────────────────────
@@ -863,8 +953,18 @@ export default function ticketExtension(pi: ExtensionAPI) {
 					});
 					if (isError(result)) return errorResult("close", result.error);
 
+					const closedTicket = result as TicketRecord;
+					const epicClose = await tryAutoCloseEpic(dir, closedTicket, ctx);
 					refreshUI(ctx);
-					return ticketResult("close", result as TicketRecord);
+
+					if (epicClose) {
+						const extra = `\n\n✅ Epic ${epicClose.epic.id} "${epicClose.epic.title}" auto-closed — all ${epicClose.childCount} tasks complete.`;
+						return {
+							content: [{ type: "text" as const, text: serializeForAgent(closedTicket) + extra }],
+							details: { action: "close", ticket: closedTicket },
+						};
+					}
+					return ticketResult("close", closedTicket);
 				}
 
 				// ── reopen ─────────────────────────────────────────────
@@ -1214,7 +1314,7 @@ export default function ticketExtension(pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			const dir = getTicketsDir(ctx.cwd);
 			const tickets = await listTickets(dir);
-			const ready = getReadyTickets(tickets).filter((t) => t.status === "open");
+			const ready = getReadyTickets(tickets).filter((t) => t.status === "open" && t.type !== "epic");
 
 			if (!ready.length) {
 				ctx.ui.notify("No ready tickets to process", "info");
@@ -1230,7 +1330,7 @@ export default function ticketExtension(pi: ExtensionAPI) {
 
 			// Ask user how to proceed
 			const forkOptions = [
-				"Fork a new session for each ticket",
+				"Auto-run: work through all, each task compacted",
 				"Work through all in this session",
 				"Cancel",
 			];
@@ -1239,7 +1339,7 @@ export default function ticketExtension(pi: ExtensionAPI) {
 			if (!forkChoice || forkChoice === "Cancel") return;
 
 			if (forkChoice === "Work through all in this session") {
-				// Inject prompt to work through all tickets
+				await clearAutoRun(dir);
 				const prompt =
 					`Work through these tickets in order, one at a time. For each ticket:\n` +
 					`1. Use \`ticket start <id>\` to begin\n` +
@@ -1251,29 +1351,43 @@ export default function ticketExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			// Fork-each mode: process first ticket, inject context for next
-			const firstTicket = ready[0];
-			const record = await readTicketFile(getTicketPath(dir, firstTicket.id), firstTicket.id);
+			// Auto-run mode: set marker, send first task, agent_end handles continuation
+			await writeAutoRun(dir, { active: true });
+
+			const firstTask = ready[0];
+			const record = await readTicketFile(getTicketPath(dir, firstTask.id), firstTask.id);
 
 			const prompt =
-				`Work on ticket ${firstTicket.id} "${firstTicket.title}".\n\n` +
-				(record.description ? `Description: ${record.description}\n\n` : "") +
-				(record.design ? `Design: ${record.design}\n\n` : "") +
-				(record.acceptance ? `Acceptance: ${record.acceptance}\n\n` : "") +
-				(record.tests ? `Tests: ${record.tests}\n\n` : "") +
-				`Steps:\n1. \`ticket start ${firstTicket.id}\`\n2. Implement the work\n3. \`ticket close ${firstTicket.id}\`${record.tests ? " (with tests_confirmed=true after verifying tests)" : ""}\n\n` +
-				`After closing, there are ${ready.length - 1} more tickets to process.`;
+				buildEpicContextLine(tickets, firstTask) +
+				buildAutoRunPrompt(firstTask, record, ready.length) +
+				". Next task will be sent automatically after closing.";
 
-			// Fork a new session, then send the prompt to trigger execution
 			const result = await ctx.newSession({
 				parentSession: ctx.sessionManager.getSessionFile(),
 			});
 
 			if (result.cancelled) {
+				await clearAutoRun(dir);
 				ctx.ui.notify("Session creation cancelled", "info");
 			} else {
 				pi.sendUserMessage(prompt);
 			}
+		},
+	});
+
+	// ── /ticket-run-stop command ────────────────────────────────────────
+
+	pi.registerCommand("ticket-run-stop", {
+		description: "Stop the auto-run loop after the current ticket",
+		handler: async (_args, ctx) => {
+			const dir = getTicketsDir(ctx.cwd);
+			const autoRun = await readAutoRun(dir);
+			if (!autoRun?.active) {
+				ctx.ui.notify("Auto-run is not active", "info");
+				return;
+			}
+			await clearAutoRun(dir);
+			ctx.ui.notify("Auto-run stopped. Current ticket will finish normally.", "info");
 		},
 	});
 }

@@ -220,10 +220,11 @@ export default function statusBarExtension(pi: ExtensionAPI): void {
 	let diffStats: GitDiffStats | null = null;
 	let diffStatsTimer: ReturnType<typeof setTimeout> | null = null;
 
-	// PR status for current branch (refreshed on branch change)
+	// PR status for current branch (refreshed on branch change + every 60s)
 	let prStatus: PrStatus | null = null;
 	let prStatusTimer: ReturnType<typeof setTimeout> | null = null;
 	let prStatusBranch: string | null = null;
+	let prPollInterval: ReturnType<typeof setInterval> | null = null;
 
 	async function refreshDiffStats(): Promise<void> {
 		try {
@@ -280,14 +281,14 @@ export default function statusBarExtension(pi: ExtensionAPI): void {
 	}
 
 	/** Fetch PR status for the current branch via gh CLI. */
-	async function refreshPrStatus(branch?: string | null): Promise<void> {
+	async function refreshPrStatus(branch?: string | null, force = false): Promise<void> {
 		const currentBranch = branch ?? prStatusBranch;
 		if (!currentBranch || currentBranch === "main" || currentBranch === "master") {
 			prStatus = null;
 			prStatusBranch = currentBranch ?? null;
 			return;
 		}
-		if (currentBranch === prStatusBranch && prStatus !== null) return;
+		if (!force && currentBranch === prStatusBranch && prStatus !== null) return;
 		prStatusBranch = currentBranch;
 		try {
 			const result = await pi.exec(
@@ -308,6 +309,23 @@ export default function statusBarExtension(pi: ExtensionAPI): void {
 	function schedulePrRefresh(branch?: string | null): void {
 		if (prStatusTimer) clearTimeout(prStatusTimer);
 		prStatusTimer = setTimeout(() => refreshPrStatus(branch), 600);
+	}
+
+	/** Start a 60s polling interval to keep PR status up-to-date (e.g. detect merges). */
+	function startPrPoll(): void {
+		stopPrPoll();
+		prPollInterval = setInterval(async () => {
+			if (!prStatusBranch) return;
+			await refreshPrStatus(prStatusBranch, true);
+			tuiRef?.requestRender();
+		}, 60_000);
+	}
+
+	function stopPrPoll(): void {
+		if (prPollInterval) {
+			clearInterval(prPollInterval);
+			prPollInterval = null;
+		}
 	}
 
 	// ── Event handlers ─────────────────────────────────────────────────────
@@ -364,6 +382,7 @@ export default function statusBarExtension(pi: ExtensionAPI): void {
 
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			refreshPrStatus(footerData.getGitBranch());
+			startPrPoll();
 			tuiRef = tui;
 			const unsub = footerData.onBranchChange(() => {
 				schedulePrRefresh(footerData.getGitBranch());
@@ -371,7 +390,7 @@ export default function statusBarExtension(pi: ExtensionAPI): void {
 			});
 
 			return {
-				dispose() { unsub(); stopRenderTimer(); tuiRef = null; },
+				dispose() { unsub(); stopRenderTimer(); stopPrPoll(); tuiRef = null; },
 				invalidate() {},
 				render(width: number): string[] {
 					return renderFooter(width, ctx, theme, footerData);
@@ -391,6 +410,7 @@ export default function statusBarExtension(pi: ExtensionAPI): void {
 			currentBytesPerSec = 0;
 			isStreaming = false;
 			stopRenderTimer();
+			stopPrPoll();
 			refreshDiffStats();
 		}
 	});

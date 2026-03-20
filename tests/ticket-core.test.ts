@@ -12,13 +12,16 @@ import path from "node:path";
 import os from "node:os";
 
 import {
+	type AutoRunState,
 	type TicketFrontMatter,
 	type TicketRecord,
 	VALID_STATUSES,
 	VALID_TYPES,
+	allChildrenClosed,
 	buildRefinePrompt,
 	buildSearchText,
 	buildWorkPrompt,
+	clearAutoRun,
 	derivePrefix,
 	ensureDir,
 	filterTickets,
@@ -26,6 +29,9 @@ import {
 	formatTicketLine,
 	garbageCollect,
 	generateId,
+	getAutoRunPath,
+	getChildren,
+	getOpenEpics,
 	getProjectPrefix,
 	getReadyTickets,
 	getTicketPath,
@@ -36,6 +42,7 @@ import {
 	parseBody,
 	parseTicket,
 	parseTicketFrontMatter,
+	readAutoRun,
 	readSettings,
 	readTicketFile,
 	resolveId,
@@ -45,6 +52,7 @@ import {
 	sortTickets,
 	splitContent,
 	statusIcon,
+	writeAutoRun,
 	writeTicketFile,
 } from "../pi-extensions/ticket/ticket-core.ts";
 
@@ -1055,5 +1063,128 @@ describe("constants", () => {
 
 	it("VALID_TYPES has expected values", () => {
 		assert.deepEqual(VALID_TYPES, ["bug", "feature", "task", "epic", "chore"]);
+	});
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// Epic helpers
+// ════════════════════════════════════════════════════════════════════════
+
+describe("getChildren", () => {
+	it("returns children matching the parent id", () => {
+		const tickets = [
+			makeFM({ id: "as-ep01", type: "epic" }),
+			makeFM({ id: "as-t001", parent: "as-ep01" }),
+			makeFM({ id: "as-t002", parent: "as-ep01" }),
+			makeFM({ id: "as-t003", parent: "as-ep02" }),
+		];
+		const children = getChildren(tickets, "as-ep01");
+		assert.equal(children.length, 2);
+		assert.deepEqual(children.map((c) => c.id), ["as-t001", "as-t002"]);
+	});
+
+	it("returns empty array when no children", () => {
+		const tickets = [makeFM({ id: "as-ep01", type: "epic" })];
+		assert.deepEqual(getChildren(tickets, "as-ep01"), []);
+	});
+});
+
+describe("allChildrenClosed", () => {
+	it("returns true when all children are closed", () => {
+		const tickets = [
+			makeFM({ id: "as-ep01", type: "epic" }),
+			makeFM({ id: "as-t001", parent: "as-ep01", status: "closed" }),
+			makeFM({ id: "as-t002", parent: "as-ep01", status: "closed" }),
+		];
+		assert.equal(allChildrenClosed(tickets, "as-ep01"), true);
+	});
+
+	it("returns false when some children are open", () => {
+		const tickets = [
+			makeFM({ id: "as-ep01", type: "epic" }),
+			makeFM({ id: "as-t001", parent: "as-ep01", status: "closed" }),
+			makeFM({ id: "as-t002", parent: "as-ep01", status: "open" }),
+		];
+		assert.equal(allChildrenClosed(tickets, "as-ep01"), false);
+	});
+
+	it("returns false when no children exist", () => {
+		const tickets = [makeFM({ id: "as-ep01", type: "epic" })];
+		assert.equal(allChildrenClosed(tickets, "as-ep01"), false);
+	});
+
+	it("returns false when a child is in_progress", () => {
+		const tickets = [
+			makeFM({ id: "as-ep01", type: "epic" }),
+			makeFM({ id: "as-t001", parent: "as-ep01", status: "closed" }),
+			makeFM({ id: "as-t002", parent: "as-ep01", status: "in_progress" }),
+		];
+		assert.equal(allChildrenClosed(tickets, "as-ep01"), false);
+	});
+});
+
+describe("getOpenEpics", () => {
+	it("returns non-closed epics sorted by priority", () => {
+		const tickets = [
+			makeFM({ id: "as-ep01", type: "epic", priority: 2 }),
+			makeFM({ id: "as-ep02", type: "epic", priority: 1 }),
+			makeFM({ id: "as-ep03", type: "epic", status: "closed" }),
+			makeFM({ id: "as-t001", type: "task" }),
+		];
+		const epics = getOpenEpics(tickets);
+		assert.equal(epics.length, 2);
+		assert.equal(epics[0].id, "as-ep02");
+		assert.equal(epics[1].id, "as-ep01");
+	});
+
+	it("returns empty array when no open epics", () => {
+		const tickets = [
+			makeFM({ id: "as-ep01", type: "epic", status: "closed" }),
+			makeFM({ id: "as-t001", type: "task" }),
+		];
+		assert.deepEqual(getOpenEpics(tickets), []);
+	});
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// Auto-run state
+// ════════════════════════════════════════════════════════════════════════
+
+describe("auto-run state", () => {
+	let tmpDir: string;
+
+	beforeEach(async () => {
+		tmpDir = await makeTmpDir();
+	});
+
+	afterEach(async () => {
+		await fs.rm(tmpDir, { recursive: true, force: true });
+	});
+
+	it("readAutoRun returns null when no marker exists", async () => {
+		assert.equal(await readAutoRun(tmpDir), null);
+	});
+
+	it("writeAutoRun + readAutoRun round-trips", async () => {
+		const state: AutoRunState = { active: true, lastCompletedEpicId: "ep-01", lastCompletedEpicTitle: "My Epic" };
+		await writeAutoRun(tmpDir, state);
+		const read = await readAutoRun(tmpDir);
+		assert.deepEqual(read, state);
+	});
+
+	it("clearAutoRun removes the marker", async () => {
+		await writeAutoRun(tmpDir, { active: true });
+		await clearAutoRun(tmpDir);
+		assert.equal(await readAutoRun(tmpDir), null);
+	});
+
+	it("clearAutoRun is safe when no marker exists", async () => {
+		await clearAutoRun(tmpDir); // should not throw
+		assert.equal(await readAutoRun(tmpDir), null);
+	});
+
+	it("getAutoRunPath returns expected path", () => {
+		const p = getAutoRunPath("/tmp/tickets");
+		assert.equal(p, "/tmp/tickets/.auto-run");
 	});
 });

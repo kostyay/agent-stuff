@@ -96,6 +96,11 @@ All notable changes to agent-stuff are documented here.
 
 
 
+
+## feat/ticket-auto-run-continuation
+
+Auto-run continuation for ticket processing (#56): tickets can now be processed sequentially across epic boundaries with automatic context compaction, where the agent receives the next ready task after closing the current one without manual intervention. Status-bar PR polling now refreshes every 60 seconds to detect merge status changes in real-time. Parent epics auto-close when all child tasks are completed, with transition context automatically included when moving between epics to maintain narrative continuity. A new `/ticket-run-stop` command allows halting the auto-run loop gracefully after the current ticket finishes.
+
 ## feat/add-pr-extension-command
 
 Adds a new `/pr` command extension (#55) that allows users to quickly open pull requests in their browser by detecting the current git branch and using the GitHub CLI (`gh`) to fetch and launch the PR URL. The extension includes safety checks to prevent accidental attempts on main/master branches and gracefully handles cases where no open PR exists for the current branch. Documentation has been updated to reflect the new command and related library additions for tmux session management and a reusable question UI component.
