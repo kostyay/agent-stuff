@@ -35,7 +35,7 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | [`git-rebase-master.ts`](pi-extensions/git-rebase-master.ts) | `/git-rebase-master` command — fetches latest main/master and rebases current branch with automatic LLM conflict resolution |
 | [`claude-import.ts`](pi-extensions/claude-import.ts) | Loads commands, skills, and agents from `.claude/` directories (project + global) and registers them as `/claude:*` commands |
 | [`kbrainstorm.ts`](pi-extensions/kbrainstorm.ts) | `ask_question` tool — interactive TUI for brainstorming with multiple-choice and freeform answers |
-| [`ticket/`](pi-extensions/ticket) | `ticket` tool — git-backed ticket tracker storing tickets as markdown files in `.tickets/` with hierarchy, dependencies, and status workflow |
+| [`ticket/`](pi-extensions/ticket) | `ticket` tool — git-backed ticket tracker storing tickets as markdown files in `.tickets/` with hierarchy, dependencies, status workflow, auto-closing of completed epics, and auto-run continuation across epics with context compaction |
 | [`loop.ts`](pi-extensions/loop.ts) | `/loop` command — runs a follow-up prompt loop with a breakout condition for iterative coding |
 | [`notify.ts`](pi-extensions/notify.ts) | Desktop notifications (OSC 777) when the agent finishes and is waiting for input |
 | [`op-timer.ts`](pi-extensions/op-timer.ts) | Live elapsed-time counter above the editor while the agent works — shows total operation and current tool execution duration |

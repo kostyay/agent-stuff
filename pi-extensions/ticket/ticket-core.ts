@@ -481,6 +481,64 @@ export function filterTickets(tickets: TicketFrontMatter[], query: string): Tick
 	});
 }
 
+// ── Auto-run state ─────────────────────────────────────────────────────
+
+const AUTO_RUN_FILE = ".auto-run";
+
+/** Persistent state for the auto-run loop (`/ticket-run-all` fork mode). */
+export interface AutoRunState {
+	active: boolean;
+	/** ID of the most recently completed epic (for transition context). */
+	lastCompletedEpicId?: string;
+	/** Title of the most recently completed epic. */
+	lastCompletedEpicTitle?: string;
+}
+
+/** Path to the auto-run marker file. */
+export function getAutoRunPath(ticketsDir: string): string {
+	return path.join(ticketsDir, AUTO_RUN_FILE);
+}
+
+/** Read auto-run state, or null if not active. */
+export async function readAutoRun(ticketsDir: string): Promise<AutoRunState | null> {
+	try {
+		const raw = await fs.readFile(getAutoRunPath(ticketsDir), "utf-8");
+		return JSON.parse(raw) as AutoRunState;
+	} catch {
+		return null;
+	}
+}
+
+/** Write auto-run state to the marker file. */
+export async function writeAutoRun(ticketsDir: string, state: AutoRunState): Promise<void> {
+	await fs.writeFile(getAutoRunPath(ticketsDir), JSON.stringify(state, null, 2) + "\n");
+}
+
+/** Remove the auto-run marker file. */
+export async function clearAutoRun(ticketsDir: string): Promise<void> {
+	try {
+		await fs.unlink(getAutoRunPath(ticketsDir));
+	} catch { /* already gone */ }
+}
+
+// ── Epic helpers ───────────────────────────────────────────────────────
+
+/** Get all child tickets of a parent. */
+export function getChildren(tickets: TicketFrontMatter[], parentId: string): TicketFrontMatter[] {
+	return tickets.filter((t) => t.parent === parentId);
+}
+
+/** Check if all children of a parent ticket are closed (returns false if no children). */
+export function allChildrenClosed(tickets: TicketFrontMatter[], parentId: string): boolean {
+	const children = getChildren(tickets, parentId);
+	return children.length > 0 && children.every((t) => t.status === "closed");
+}
+
+/** Get non-closed epics sorted by priority then creation date. */
+export function getOpenEpics(tickets: TicketFrontMatter[]): TicketFrontMatter[] {
+	return sortTickets(tickets.filter((t) => t.type === "epic" && t.status !== "closed"));
+}
+
 // ── Prompt helpers ─────────────────────────────────────────────────────
 
 /** Build the prompt text for working on a ticket. */
@@ -493,6 +551,34 @@ export function buildRefinePrompt(ticket: TicketFrontMatter): string {
 	return (
 		`let's refine ticket ${ticket.id} "${ticket.title || "(untitled)"}": ` +
 		"Ask me for the missing details needed to refine the ticket together. Do not rewrite the ticket yet and do not make assumptions. " +
-		"Ask clear, concrete questions and wait for my answers before drafting any structured description.\n\n"
+		"Ask clear, concrete questions and wait for my answers before drafting any structural description.\n\n"
 	);
+}
+
+/** Build the "Part of epic X" context line, or empty string if no parent epic. */
+export function buildEpicContextLine(tickets: TicketFrontMatter[], task: TicketFrontMatter): string {
+	if (!task.parent) return "";
+	const parent = tickets.find((t) => t.id === task.parent);
+	if (!parent) return "";
+	return `Part of epic ${parent.id} "${parent.title}".\n\n`;
+}
+
+/**
+ * Build a self-contained auto-run task prompt with ticket details and steps.
+ * Used by both `/ticket-run-all` and the `agent_end` continuation handler.
+ */
+export function buildAutoRunPrompt(task: TicketFrontMatter, record: TicketRecord, readyCount: number): string {
+	const sections: string[] = [`Work on ticket ${task.id} "${task.title}".\n`];
+
+	if (record.description) sections.push(`Description: ${record.description}\n`);
+	if (record.design) sections.push(`Design: ${record.design}\n`);
+	if (record.acceptance) sections.push(`Acceptance: ${record.acceptance}\n`);
+	if (record.tests) sections.push(`Tests: ${record.tests}\n`);
+
+	let steps = `Steps:\n1. \`ticket start ${task.id}\`\n2. Implement the work\n3. \`ticket close ${task.id}\``;
+	if (record.tests.trim()) steps += " (with tests_confirmed=true after verifying tests)";
+	sections.push(steps);
+
+	sections.push(`\nRemaining ready tasks: ${readyCount}`);
+	return sections.join("\n");
 }
