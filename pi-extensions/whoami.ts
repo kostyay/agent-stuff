@@ -23,8 +23,8 @@ export default function whoamiExtension(pi: ExtensionAPI): void {
 				return;
 			}
 
-			const apiKey = await ctx.modelRegistry.getApiKey(ctx.model);
-			if (!apiKey) {
+			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
+			if (!auth.ok) {
 				ctx.ui.notify(
 					`No API key found for ${ctx.model.provider}/${ctx.model.id}.`,
 					"warning",
@@ -32,7 +32,7 @@ export default function whoamiExtension(pi: ExtensionAPI): void {
 				return;
 			}
 
-			const masked = maskKey(apiKey);
+			const masked = auth.apiKey ? maskKey(auth.apiKey) : "(no key, headers only)";
 			ctx.ui.notify(
 				`${ctx.model.provider}/${ctx.model.id}: ${masked}`,
 				"info",

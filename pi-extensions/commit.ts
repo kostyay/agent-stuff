@@ -148,8 +148,8 @@ function cleanFirstLine(raw: string): string {
 async function callHaiku(prompt: string, ctx: ExtensionCommandContext): Promise<string | undefined> {
 	if (!HAIKU) return undefined;
 
-	const apiKey = await ctx.modelRegistry.getApiKey(HAIKU);
-	if (!apiKey) return undefined;
+	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(HAIKU);
+	if (!auth.ok) return undefined;
 
 	const response = await complete(HAIKU, {
 		messages: [{
@@ -157,7 +157,7 @@ async function callHaiku(prompt: string, ctx: ExtensionCommandContext): Promise<
 			content: [{ type: "text" as const, text: prompt }],
 			timestamp: Date.now(),
 		}],
-	}, { apiKey });
+	}, { apiKey: auth.apiKey, headers: auth.headers });
 
 	const text = response.content
 		.filter((c): c is { type: "text"; text: string } => c.type === "text")
@@ -404,8 +404,8 @@ async function checkPrerequisites(pi: ExtensionAPI, ctx: ExtensionCommandContext
 		ctx.ui.notify("Model anthropic/claude-haiku-4-5 not found", "error");
 		return false;
 	}
-	const apiKey = await ctx.modelRegistry.getApiKey(HAIKU);
-	if (!apiKey) {
+	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(HAIKU);
+	if (!auth.ok) {
 		ctx.ui.notify("No API key for anthropic/claude-haiku-4-5", "error");
 		return false;
 	}

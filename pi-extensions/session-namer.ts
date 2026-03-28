@@ -166,8 +166,8 @@ export default function sessionNamerExtension(pi: ExtensionAPI): void {
 	/** Call Haiku to generate a session name from context text. */
 	async function callHaiku(contextText: string, ctx: ExtensionContext): Promise<string | undefined> {
 		if (!HAIKU) return undefined;
-		const apiKey = await ctx.modelRegistry.getApiKey(HAIKU);
-		if (!apiKey) return undefined;
+		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(HAIKU);
+		if (!auth.ok) return undefined;
 
 		const response = await complete(HAIKU, {
 			messages: [{
@@ -175,7 +175,7 @@ export default function sessionNamerExtension(pi: ExtensionAPI): void {
 				content: [{ type: "text" as const, text: NAME_PROMPT + contextText }],
 				timestamp: Date.now(),
 			}],
-		}, { apiKey });
+		}, { apiKey: auth.apiKey, headers: auth.headers });
 
 		const text = response.content
 			.filter((c): c is { type: "text"; text: string } => c.type === "text")

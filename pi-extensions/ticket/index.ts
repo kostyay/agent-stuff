@@ -46,7 +46,7 @@ import {
 	Spacer,
 	Text,
 	TUI,
-	getEditorKeybindings,
+	getKeybindings,
 	matchesKey,
 	truncateToWidth,
 	visibleWidth,
@@ -352,25 +352,25 @@ class TicketSelectorComponent extends Container implements Focusable {
 	}
 
 	handleInput(keyData: string): void {
-		const kb = getEditorKeybindings();
-		if (kb.matches(keyData, "selectUp")) {
+		const kb = getKeybindings();
+		if (kb.matches(keyData, "tui.select.up")) {
 			if (!this.filteredTickets.length) return;
 			this.selectedIndex = this.selectedIndex === 0 ? this.filteredTickets.length - 1 : this.selectedIndex - 1;
 			this.updateList();
 			return;
 		}
-		if (kb.matches(keyData, "selectDown")) {
+		if (kb.matches(keyData, "tui.select.down")) {
 			if (!this.filteredTickets.length) return;
 			this.selectedIndex = this.selectedIndex === this.filteredTickets.length - 1 ? 0 : this.selectedIndex + 1;
 			this.updateList();
 			return;
 		}
-		if (kb.matches(keyData, "selectConfirm")) {
+		if (kb.matches(keyData, "tui.select.confirm")) {
 			const sel = this.filteredTickets[this.selectedIndex];
 			if (sel) this.onSelectCallback(sel);
 			return;
 		}
-		if (kb.matches(keyData, "selectCancel")) {
+		if (kb.matches(keyData, "tui.select.cancel")) {
 			this.onCancelCallback();
 			return;
 		}
@@ -492,13 +492,13 @@ class TicketDetailOverlayComponent {
 	}
 
 	handleInput(keyData: string): void {
-		const kb = getEditorKeybindings();
-		if (kb.matches(keyData, "selectCancel")) { this.onAction("back"); return; }
-		if (kb.matches(keyData, "selectConfirm")) { this.onAction("work"); return; }
-		if (kb.matches(keyData, "selectUp")) { this.scrollBy(-1); return; }
-		if (kb.matches(keyData, "selectDown")) { this.scrollBy(1); return; }
-		if (kb.matches(keyData, "selectPageUp")) { this.scrollBy(-(this.viewHeight || 1)); return; }
-		if (kb.matches(keyData, "selectPageDown")) { this.scrollBy(this.viewHeight || 1); return; }
+		const kb = getKeybindings();
+		if (kb.matches(keyData, "tui.select.cancel")) { this.onAction("back"); return; }
+		if (kb.matches(keyData, "tui.select.confirm")) { this.onAction("work"); return; }
+		if (kb.matches(keyData, "tui.select.up")) { this.scrollBy(-1); return; }
+		if (kb.matches(keyData, "tui.select.down")) { this.scrollBy(1); return; }
+		if (kb.matches(keyData, "tui.select.pageUp")) { this.scrollBy(-(this.viewHeight || 1)); return; }
+		if (kb.matches(keyData, "tui.select.pageDown")) { this.scrollBy(this.viewHeight || 1); return; }
 	}
 
 	render(width: number): string[] {
@@ -1038,7 +1038,7 @@ export default function ticketExtension(pi: ExtensionAPI) {
 
 		renderResult(result, { expanded }, theme) {
 			const details = result.details as KtToolDetails | undefined;
-			const expandHint = theme.fg("dim", `(${keyHint("expandTools", "to expand")})`);
+			const expandHint = theme.fg("dim", `(${keyHint("app.tools.expand", "to expand")})`);
 			const fallbackText = result.content[0];
 			const fallback = () => new Text(fallbackText?.type === "text" ? fallbackText.text : "", 0, 0);
 
