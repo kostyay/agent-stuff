@@ -97,11 +97,18 @@ All notable changes to agent-stuff are documented here.
 
 
 
-## feat/ticket-auto-run-continuation
+
+
+
+## chore/update-pi-packages-0-63-1
+
+Updated mariozechner PI packages to version 0.63.1 (#62), introducing API changes across multiple extensions. The update requires strict version pinning (`^0.63.1`) for peer dependencies (@mariozechner/pi-ai, @mariozechner/pi-coding-agent, @mariozechner/pi-tui), and refactors model authentication to use a new `getApiKeyAndHeaders()` method that returns an authentication object instead of a simple API key string. Key technical changes include updates to type imports (ModelRegistry), property accessors for command source information (from `c.path` to `c.sourceInfo?.path`), and dependency upgrades for OpenAI (6.10.0 → 6.26.0) and Mistral (1.10.0 → 1.14.1). The minimum Node.js requirement for pi-coding-agent was bumped from 20.0.0 to 20.6.0, and koffi is now an optional dependency in pi-tui.
+
+## [1.0.40](https://github.com/kostyay/agent-stuff/pull/56) - 2026-03-20
 
 Auto-run continuation for ticket processing (#56): tickets can now be processed sequentially across epic boundaries with automatic context compaction, where the agent receives the next ready task after closing the current one without manual intervention. Status-bar PR polling now refreshes every 60 seconds to detect merge status changes in real-time. Parent epics auto-close when all child tasks are completed, with transition context automatically included when moving between epics to maintain narrative continuity. A new `/ticket-run-stop` command allows halting the auto-run loop gracefully after the current ticket finishes.
 
-## feat/add-pr-extension-command
+## [1.0.40](https://github.com/kostyay/agent-stuff/pull/55) - 2026-03-20
 
 Adds a new `/pr` command extension (#55) that allows users to quickly open pull requests in their browser by detecting the current git branch and using the GitHub CLI (`gh`) to fetch and launch the PR URL. The extension includes safety checks to prevent accidental attempts on main/master branches and gracefully handles cases where no open PR exists for the current branch. Documentation has been updated to reflect the new command and related library additions for tmux session management and a reusable question UI component.
 
