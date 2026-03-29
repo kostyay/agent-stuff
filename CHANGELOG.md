@@ -100,6 +100,11 @@ All notable changes to agent-stuff are documented here.
 
 
 
+
+## docs/expand-github-skill-docs
+
+Expanded the GitHub skill documentation (#64) with comprehensive `gh` CLI examples and best practices, including detailed sections on pull requests, GitHub Actions workflows, search, and API usage. The guide now covers practical command patterns for PR management (create, review, merge), workflow automation (triggering, monitoring, managing secrets/variables), and advanced querying with JSON filtering and GraphQL. Added a reference table for global flags and bulk operation patterns to improve discoverability and help users leverage the full capabilities of the GitHub CLI.
+
 ## chore/update-pi-packages-0-63-1
 
 Updated mariozechner PI packages to version 0.63.1 (#62), introducing API changes across multiple extensions. The update requires strict version pinning (`^0.63.1`) for peer dependencies (@mariozechner/pi-ai, @mariozechner/pi-coding-agent, @mariozechner/pi-tui), and refactors model authentication to use a new `getApiKeyAndHeaders()` method that returns an authentication object instead of a simple API key string. Key technical changes include updates to type imports (ModelRegistry), property accessors for command source information (from `c.path` to `c.sourceInfo?.path`), and dependency upgrades for OpenAI (6.10.0 → 6.26.0) and Mistral (1.10.0 → 1.14.1). The minimum Node.js requirement for pi-coding-agent was bumped from 20.0.0 to 20.6.0, and koffi is now an optional dependency in pi-tui.
