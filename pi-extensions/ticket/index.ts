@@ -10,7 +10,7 @@
  * - `ticket` tool with 9 actions (create, show, update, delete, start, close, reopen, list, add-note)
  * - `/ticket` TUI browser with fuzzy search and action menu
  * - `/ticket-create` prompt injection for epic + task breakdown
- * - `/ticket-run-all` automated ticket processing with auto-run continuation across epics
+ * - `/ticket-run-all` automated ticket processing with compaction between tasks, continues across epics
  * - `/ticket-run-stop` to halt the auto-run loop after the current ticket
  * - Auto-close of parent epics when all child tasks are closed
  * - Auto-continuation: after closing a task, compacts context and sends next task prompt
@@ -20,6 +20,7 @@
  * - Auto-nudge on agent_end when tickets remain in-progress
  */
 
+import { StringEnum } from "@mariozechner/pi-ai";
 import {
 	DynamicBorder,
 	copyToClipboard,
@@ -30,27 +31,27 @@ import {
 	type Theme,
 	type ThemeColor,
 } from "@mariozechner/pi-coding-agent";
-import { StringEnum } from "@mariozechner/pi-ai";
-import { Type } from "@sinclair/typebox";
-import { existsSync } from "node:fs";
-import fs from "node:fs/promises";
-import path from "node:path";
 import {
 	Container,
-	type Focusable,
-	type SelectItem,
 	Input,
 	Key,
 	Markdown,
 	SelectList,
 	Spacer,
-	Text,
 	TUI,
+	Text,
 	getKeybindings,
 	matchesKey,
 	truncateToWidth,
 	visibleWidth,
+	type Focusable,
+	type SelectItem,
 } from "@mariozechner/pi-tui";
+import { Type } from "@sinclair/typebox";
+import { existsSync } from "node:fs";
+import fs from "node:fs/promises";
+import path from "node:path";
+
 import {
 	type LockInfo,
 	type TicketFrontMatter,
@@ -646,7 +647,7 @@ export default function ticketExtension(pi: ExtensionAPI) {
 
 	pi.on("input", async () => {
 		nudgedThisCycle = false;
-		return { action: "continue" as const };
+		return { action: "continue" };
 	});
 
 	// ── UI refresh ─────────────────────────────────────────────────────
@@ -1310,7 +1311,7 @@ export default function ticketExtension(pi: ExtensionAPI) {
 	// ── /ticket-run-all command ─────────────────────────────────────────
 
 	pi.registerCommand("ticket-run-all", {
-		description: "Process all ready tickets, optionally in separate sessions",
+		description: "Auto-run all ready tickets with compaction between tasks",
 		handler: async (_args, ctx) => {
 			const dir = getTicketsDir(ctx.cwd);
 			const tickets = await listTickets(dir);
@@ -1323,35 +1324,16 @@ export default function ticketExtension(pi: ExtensionAPI) {
 
 			const ticketList = ready.map((t) => `  ${t.id} ${t.title} [${t.type}, p${t.priority}]`).join("\n");
 
-			if (!ctx.hasUI) {
-				console.log(`Ready tickets:\n${ticketList}`);
-				return;
+			if (ctx.hasUI) {
+				const ok = await ctx.ui.confirm(
+					`Auto-run ${ready.length} ticket(s)?`,
+					`Context is compacted between tasks. Use /ticket-run-stop to halt.\n\n${ticketList}`,
+				);
+				if (!ok) return;
 			}
 
-			// Ask user how to proceed
-			const forkOptions = [
-				"Auto-run: work through all, each task compacted",
-				"Work through all in this session",
-				"Cancel",
-			];
-			const forkChoice = await ctx.ui.select("ticket-run-all: Session strategy", forkOptions);
-
-			if (!forkChoice || forkChoice === "Cancel") return;
-
-			if (forkChoice === "Work through all in this session") {
-				await clearAutoRun(dir);
-				const prompt =
-					`Work through these tickets in order, one at a time. For each ticket:\n` +
-					`1. Use \`ticket start <id>\` to begin\n` +
-					`2. Implement the work\n` +
-					`3. Use \`ticket close <id>\` when done (with tests_confirmed=true if it has tests)\n` +
-					`4. Move to the next ticket\n\n` +
-					`Ready tickets:\n${ticketList}\n\nStart with the first one.`;
-				ctx.ui.setEditorText(prompt);
-				return;
-			}
-
-			// Auto-run mode: set marker, send first task, agent_end handles continuation
+			// Set auto-run marker, compact context, send first task.
+			// agent_end handles continuation for subsequent tasks.
 			await writeAutoRun(dir, { active: true });
 
 			const firstTask = ready[0];
@@ -1362,16 +1344,9 @@ export default function ticketExtension(pi: ExtensionAPI) {
 				buildAutoRunPrompt(firstTask, record, ready.length) +
 				". Next task will be sent automatically after closing.";
 
-			const result = await ctx.newSession({
-				parentSession: ctx.sessionManager.getSessionFile(),
-			});
-
-			if (result.cancelled) {
-				await clearAutoRun(dir);
-				ctx.ui.notify("Session creation cancelled", "info");
-			} else {
-				pi.sendUserMessage(prompt);
-			}
+			ctx.compact();
+			refreshUI(ctx);
+			pi.sendUserMessage(prompt);
 		},
 	});
 
