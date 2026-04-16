@@ -5,11 +5,11 @@
  * Run with: node --experimental-strip-types --test tests/ticket-core.test.ts
  */
 
-import { describe, it, before, after, afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 
 import {
 	type AutoRunState,
@@ -18,6 +18,8 @@ import {
 	VALID_STATUSES,
 	VALID_TYPES,
 	allChildrenClosed,
+	buildAutoRunPrompt,
+	buildEpicContextLine,
 	buildRefinePrompt,
 	buildSearchText,
 	buildWorkPrompt,
@@ -1186,5 +1188,482 @@ describe("auto-run state", () => {
 	it("getAutoRunPath returns expected path", () => {
 		const p = getAutoRunPath("/tmp/tickets");
 		assert.equal(p, "/tmp/tickets/.auto-run");
+	});
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// buildEpicContextLine
+// ════════════════════════════════════════════════════════════════════════
+
+describe("buildEpicContextLine", () => {
+	it("returns epic context when task has a parent epic", () => {
+		const tickets = [
+			makeFM({ id: "ep-01", type: "epic", title: "Auth epic" }),
+			makeFM({ id: "t-01", parent: "ep-01", title: "Add login" }),
+		];
+		const line = buildEpicContextLine(tickets, tickets[1]);
+		assert.ok(line.includes("ep-01"));
+		assert.ok(line.includes("Auth epic"));
+		assert.ok(line.startsWith("Part of epic"));
+	});
+
+	it("returns empty string for orphan tasks (no parent)", () => {
+		const tickets = [makeFM({ id: "t-01", title: "Orphan" })];
+		assert.equal(buildEpicContextLine(tickets, tickets[0]), "");
+	});
+
+	it("returns empty string when parent not found", () => {
+		const tickets = [makeFM({ id: "t-01", parent: "missing-epic" })];
+		assert.equal(buildEpicContextLine(tickets, tickets[0]), "");
+	});
+
+	it("switches context when moving to a different epic", () => {
+		const tickets = [
+			makeFM({ id: "ep-01", type: "epic", title: "First epic" }),
+			makeFM({ id: "ep-02", type: "epic", title: "Second epic" }),
+			makeFM({ id: "t-01", parent: "ep-01" }),
+			makeFM({ id: "t-02", parent: "ep-02" }),
+		];
+		const line1 = buildEpicContextLine(tickets, tickets[2]);
+		const line2 = buildEpicContextLine(tickets, tickets[3]);
+		assert.ok(line1.includes("First epic"));
+		assert.ok(line2.includes("Second epic"));
+		assert.ok(!line1.includes("Second epic"));
+		assert.ok(!line2.includes("First epic"));
+	});
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// buildAutoRunPrompt
+// ════════════════════════════════════════════════════════════════════════
+
+describe("buildAutoRunPrompt", () => {
+	it("includes ticket id and title", () => {
+		const task = makeFM({ id: "t-01", title: "Implement auth" });
+		const record = makeTicket({ id: "t-01", title: "Implement auth" });
+		const prompt = buildAutoRunPrompt(task, record, 5);
+		assert.ok(prompt.includes("t-01"));
+		assert.ok(prompt.includes("Implement auth"));
+	});
+
+	it("includes description when present", () => {
+		const task = makeFM({ id: "t-01" });
+		const record = makeTicket({ id: "t-01", description: "Add OAuth2 flow" });
+		const prompt = buildAutoRunPrompt(task, record, 1);
+		assert.ok(prompt.includes("Add OAuth2 flow"));
+	});
+
+	it("includes design, acceptance, and tests sections", () => {
+		const task = makeFM({ id: "t-01" });
+		const record = makeTicket({
+			id: "t-01",
+			design: "Use passport.js",
+			acceptance: "Login redirects to dashboard",
+			tests: "- TestLoginRedirect",
+		});
+		const prompt = buildAutoRunPrompt(task, record, 1);
+		assert.ok(prompt.includes("Use passport.js"));
+		assert.ok(prompt.includes("Login redirects to dashboard"));
+		assert.ok(prompt.includes("TestLoginRedirect"));
+	});
+
+	it("includes ticket start and close steps", () => {
+		const task = makeFM({ id: "t-01" });
+		const record = makeTicket({ id: "t-01" });
+		const prompt = buildAutoRunPrompt(task, record, 3);
+		assert.ok(prompt.includes("ticket start t-01"));
+		assert.ok(prompt.includes("ticket close t-01"));
+	});
+
+	it("adds tests_confirmed hint when ticket has tests", () => {
+		const task = makeFM({ id: "t-01" });
+		const record = makeTicket({ id: "t-01", tests: "- TestLogin" });
+		const prompt = buildAutoRunPrompt(task, record, 1);
+		assert.ok(prompt.includes("tests_confirmed=true"));
+	});
+
+	it("omits tests_confirmed hint when no tests", () => {
+		const task = makeFM({ id: "t-01" });
+		const record = makeTicket({ id: "t-01", tests: "" });
+		const prompt = buildAutoRunPrompt(task, record, 1);
+		assert.ok(!prompt.includes("tests_confirmed"));
+	});
+
+	it("shows remaining ready task count", () => {
+		const task = makeFM({ id: "t-01" });
+		const record = makeTicket({ id: "t-01" });
+		const prompt = buildAutoRunPrompt(task, record, 7);
+		assert.ok(prompt.includes("Remaining ready tasks: 7"));
+	});
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// Cross-epic auto-run
+// ════════════════════════════════════════════════════════════════════════
+
+describe("cross-epic: getReadyTickets with multiple epics", () => {
+	const ep1 = makeFM({ id: "ep-01", type: "epic", title: "Epic 1" });
+	const ep2 = makeFM({ id: "ep-02", type: "epic", title: "Epic 2" });
+
+	it("returns tasks from multiple epics when no cross-deps", () => {
+		const tickets = [
+			ep1, ep2,
+			makeFM({ id: "t-01", parent: "ep-01", priority: 1 }),
+			makeFM({ id: "t-02", parent: "ep-02", priority: 1 }),
+		];
+		const ready = getReadyTickets(tickets);
+		const readyIds = ready.map((t) => t.id);
+		// Both tasks and both epics are ready (no deps)
+		assert.ok(readyIds.includes("t-01"));
+		assert.ok(readyIds.includes("t-02"));
+	});
+
+	it("blocks epic2 tasks that depend on epic1 tasks", () => {
+		const tickets = [
+			ep1, ep2,
+			makeFM({ id: "t-01", parent: "ep-01" }),
+			makeFM({ id: "t-02", parent: "ep-02", deps: ["t-01"] }),
+		];
+		const ready = getReadyTickets(tickets).filter((t) => t.type !== "epic");
+		assert.deepEqual(ready.map((t) => t.id), ["t-01"]);
+	});
+
+	it("unblocks epic2 tasks when their cross-epic deps close", () => {
+		const tickets = [
+			ep1, ep2,
+			makeFM({ id: "t-01", parent: "ep-01", status: "closed" }),
+			makeFM({ id: "t-02", parent: "ep-02", deps: ["t-01"] }),
+		];
+		const ready = getReadyTickets(tickets).filter((t) => t.type !== "epic");
+		assert.deepEqual(ready.map((t) => t.id), ["t-02"]);
+	});
+
+	it("unblocks tasks that depend on the epic ID itself", () => {
+		const tickets = [
+			{ ...ep1, status: "closed" as const },
+			ep2,
+			makeFM({ id: "t-01", parent: "ep-01", status: "closed" }),
+			makeFM({ id: "t-02", parent: "ep-01", status: "closed" }),
+			makeFM({ id: "t-03", parent: "ep-02", deps: ["ep-01"] }),
+		];
+		const ready = getReadyTickets(tickets).filter((t) => t.type !== "epic");
+		assert.deepEqual(ready.map((t) => t.id), ["t-03"]);
+	});
+
+	it("handles chain: epic1 tasks → epic1 closes → epic2 tasks unblock", () => {
+		// Simulate after epic1 is fully closed
+		const tickets = [
+			{ ...ep1, status: "closed" as const },
+			ep2,
+			makeFM({ id: "t-01", parent: "ep-01", status: "closed" }),
+			makeFM({ id: "t-02", parent: "ep-01", status: "closed" }),
+			makeFM({ id: "t-03", parent: "ep-02", deps: ["ep-01"], priority: 1 }),
+			makeFM({ id: "t-04", parent: "ep-02", deps: ["t-03"], priority: 2 }),
+		];
+		const ready = getReadyTickets(tickets).filter((t) => t.type !== "epic");
+		// t-03 is ready (dep ep-01 closed), t-04 blocked (dep t-03 open)
+		assert.deepEqual(ready.map((t) => t.id), ["t-03"]);
+	});
+
+	it("handles three sequential epics", () => {
+		const ep3 = makeFM({ id: "ep-03", type: "epic", title: "Epic 3" });
+		const tickets = [
+			{ ...ep1, status: "closed" as const },
+			{ ...ep2, status: "closed" as const },
+			ep3,
+			makeFM({ id: "t-01", parent: "ep-01", status: "closed" }),
+			makeFM({ id: "t-02", parent: "ep-02", status: "closed", deps: ["ep-01"] }),
+			makeFM({ id: "t-03", parent: "ep-03", deps: ["ep-02"] }),
+		];
+		const ready = getReadyTickets(tickets).filter((t) => t.type !== "epic");
+		assert.deepEqual(ready.map((t) => t.id), ["t-03"]);
+	});
+
+	it("returns nothing when all tasks across all epics are closed", () => {
+		const tickets = [
+			{ ...ep1, status: "closed" as const },
+			{ ...ep2, status: "closed" as const },
+			makeFM({ id: "t-01", parent: "ep-01", status: "closed" }),
+			makeFM({ id: "t-02", parent: "ep-02", status: "closed" }),
+		];
+		const ready = getReadyTickets(tickets).filter((t) => t.type !== "epic");
+		assert.equal(ready.length, 0);
+	});
+
+	it("mixes orphan tasks with epic tasks in the ready queue", () => {
+		const tickets = sortTickets([
+			ep1,
+			makeFM({ id: "t-01", parent: "ep-01", priority: 2 }),
+			makeFM({ id: "t-orphan", priority: 1 }), // no parent, higher priority
+		]);
+		const ready = getReadyTickets(tickets).filter((t) => t.type !== "epic");
+		// orphan has higher priority (1 < 2), appears first after sorting
+		assert.equal(ready[0].id, "t-orphan");
+		assert.equal(ready[1].id, "t-01");
+	});
+});
+
+describe("cross-epic: allChildrenClosed with epic auto-close", () => {
+	it("returns true when all tasks of one epic are closed while another epic has open tasks", () => {
+		const tickets = [
+			makeFM({ id: "ep-01", type: "epic" }),
+			makeFM({ id: "ep-02", type: "epic" }),
+			makeFM({ id: "t-01", parent: "ep-01", status: "closed" }),
+			makeFM({ id: "t-02", parent: "ep-01", status: "closed" }),
+			makeFM({ id: "t-03", parent: "ep-02", status: "open" }),
+		];
+		assert.equal(allChildrenClosed(tickets, "ep-01"), true);
+		assert.equal(allChildrenClosed(tickets, "ep-02"), false);
+	});
+});
+
+describe("cross-epic: auto-run state tracks epic transitions", () => {
+	let tmpDir: string;
+
+	beforeEach(async () => {
+		tmpDir = await makeTmpDir();
+	});
+
+	afterEach(async () => {
+		await fs.rm(tmpDir, { recursive: true, force: true });
+	});
+
+	it("tracks completed epic for transition prompts", async () => {
+		await writeAutoRun(tmpDir, {
+			active: true,
+			lastCompletedEpicId: "ep-01",
+			lastCompletedEpicTitle: "Auth system",
+		});
+		const state = await readAutoRun(tmpDir);
+		assert.equal(state?.lastCompletedEpicId, "ep-01");
+		assert.equal(state?.lastCompletedEpicTitle, "Auth system");
+	});
+
+	it("updates to newest completed epic on transition", async () => {
+		await writeAutoRun(tmpDir, {
+			active: true,
+			lastCompletedEpicId: "ep-01",
+			lastCompletedEpicTitle: "First",
+		});
+		await writeAutoRun(tmpDir, {
+			active: true,
+			lastCompletedEpicId: "ep-02",
+			lastCompletedEpicTitle: "Second",
+		});
+		const state = await readAutoRun(tmpDir);
+		assert.equal(state?.lastCompletedEpicId, "ep-02");
+		assert.equal(state?.lastCompletedEpicTitle, "Second");
+	});
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// Cross-epic end-to-end simulation (pure functions)
+// ════════════════════════════════════════════════════════════════════════
+
+describe("cross-epic: end-to-end auto-run simulation", () => {
+	/**
+	 * Simulates the agent_end continuation logic using only pure functions
+	 * from ticket-core. Mirrors the real flow:
+	 *   1. List tickets
+	 *   2. Find ready tasks
+	 *   3. Build prompt with epic context
+	 *   4. "Close" the task (mutate status in array)
+	 *   5. Check epic auto-close
+	 *   6. Repeat until done
+	 */
+	function simulateAutoRun(
+		initialTickets: TicketFrontMatter[],
+		taskRecords: Map<string, TicketRecord>,
+	): { order: string[]; epicCloseOrder: string[]; prompts: string[] } {
+		const tickets = initialTickets.map((t) => ({ ...t }));
+		const order: string[] = [];
+		const epicCloseOrder: string[] = [];
+		const prompts: string[] = [];
+		let lastCompletedEpicId: string | undefined;
+
+		for (let iteration = 0; iteration < 50; iteration += 1) {
+			// sortTickets mirrors listTickets which always returns sorted
+			const ready = getReadyTickets(sortTickets(tickets))
+				.filter((t) => t.status === "open" && t.type !== "epic");
+
+			if (!ready.length) break;
+
+			const task = ready[0];
+			const record = taskRecords.get(task.id) ?? makeTicket({ id: task.id, title: task.title });
+
+			// Build prompt (mirrors agent_end)
+			let prefix = "";
+			if (lastCompletedEpicId) {
+				prefix += `Previously completed epic ${lastCompletedEpicId}. `;
+			}
+			prefix += buildEpicContextLine(tickets, task);
+			prompts.push(prefix + buildAutoRunPrompt(task, record, ready.length));
+
+			// "Close" the task
+			const idx = tickets.findIndex((t) => t.id === task.id);
+			tickets[idx] = { ...tickets[idx], status: "closed" };
+			order.push(task.id);
+
+			// Check epic auto-close
+			if (task.parent) {
+				const parent = tickets.find((t) => t.id === task.parent);
+				if (parent?.type === "epic" && parent.status !== "closed") {
+					if (allChildrenClosed(tickets, parent.id)) {
+						const pIdx = tickets.findIndex((t) => t.id === parent.id);
+						tickets[pIdx] = { ...tickets[pIdx], status: "closed" };
+						epicCloseOrder.push(parent.id);
+						lastCompletedEpicId = parent.id;
+					}
+				}
+			}
+		}
+
+		return { order, epicCloseOrder, prompts };
+	}
+
+	it("processes two sequential epics end-to-end", () => {
+		const tickets: TicketFrontMatter[] = [
+			makeFM({ id: "ep-01", type: "epic", title: "Auth" }),
+			makeFM({ id: "ep-02", type: "epic", title: "Dashboard" }),
+			makeFM({ id: "t-01", parent: "ep-01", title: "Login", priority: 1 }),
+			makeFM({ id: "t-02", parent: "ep-01", title: "Logout", priority: 2, deps: ["t-01"] }),
+			makeFM({ id: "t-03", parent: "ep-02", title: "Layout", priority: 1, deps: ["ep-01"] }),
+			makeFM({ id: "t-04", parent: "ep-02", title: "Widgets", priority: 2, deps: ["t-03"] }),
+		];
+
+		const records = new Map<string, TicketRecord>([
+			["t-01", makeTicket({ id: "t-01", title: "Login", description: "Add login form" })],
+			["t-02", makeTicket({ id: "t-02", title: "Logout", description: "Add logout" })],
+			["t-03", makeTicket({ id: "t-03", title: "Layout", description: "Dashboard layout" })],
+			["t-04", makeTicket({ id: "t-04", title: "Widgets", description: "Add widgets" })],
+		]);
+
+		const result = simulateAutoRun(tickets, records);
+
+		// Tasks processed in dependency order
+		assert.deepEqual(result.order, ["t-01", "t-02", "t-03", "t-04"]);
+
+		// Epics auto-close when their tasks complete
+		assert.deepEqual(result.epicCloseOrder, ["ep-01", "ep-02"]);
+
+		// Third prompt (t-03) mentions previously completed epic and new epic context
+		assert.ok(result.prompts[2].includes("Previously completed epic ep-01"));
+		assert.ok(result.prompts[2].includes("Part of epic ep-02"));
+		assert.ok(result.prompts[2].includes("Dashboard"));
+	});
+
+	it("processes three sequential epics", () => {
+		const tickets: TicketFrontMatter[] = [
+			makeFM({ id: "ep-01", type: "epic", title: "Phase 1" }),
+			makeFM({ id: "ep-02", type: "epic", title: "Phase 2" }),
+			makeFM({ id: "ep-03", type: "epic", title: "Phase 3" }),
+			makeFM({ id: "t-01", parent: "ep-01", priority: 1 }),
+			makeFM({ id: "t-02", parent: "ep-02", priority: 1, deps: ["ep-01"] }),
+			makeFM({ id: "t-03", parent: "ep-03", priority: 1, deps: ["ep-02"] }),
+		];
+
+		const result = simulateAutoRun(tickets, new Map());
+
+		assert.deepEqual(result.order, ["t-01", "t-02", "t-03"]);
+		assert.deepEqual(result.epicCloseOrder, ["ep-01", "ep-02", "ep-03"]);
+
+		// t-02 prompt references ep-01 completion
+		assert.ok(result.prompts[1].includes("Previously completed epic ep-01"));
+		// t-03 prompt references ep-02 completion (NOT ep-01 — only the latest)
+		assert.ok(result.prompts[2].includes("Previously completed epic ep-02"));
+		assert.ok(!result.prompts[2].includes("ep-01"));
+	});
+
+	it("interleaves tasks from independent epics by priority", () => {
+		const tickets: TicketFrontMatter[] = [
+			makeFM({ id: "ep-01", type: "epic", title: "Epic A" }),
+			makeFM({ id: "ep-02", type: "epic", title: "Epic B" }),
+			// ep-01 tasks: p1, p3
+			makeFM({ id: "t-a1", parent: "ep-01", priority: 1, created_at: "2026-01-01T00:00:00Z" }),
+			makeFM({ id: "t-a2", parent: "ep-01", priority: 3, created_at: "2026-01-02T00:00:00Z" }),
+			// ep-02 tasks: p2, p2 (no deps)
+			makeFM({ id: "t-b1", parent: "ep-02", priority: 2, created_at: "2026-01-03T00:00:00Z" }),
+			makeFM({ id: "t-b2", parent: "ep-02", priority: 2, created_at: "2026-01-04T00:00:00Z" }),
+		];
+
+		const result = simulateAutoRun(tickets, new Map());
+
+		// Priority order: t-a1(p1), t-b1(p2), t-b2(p2), t-a2(p3)
+		assert.deepEqual(result.order, ["t-a1", "t-b1", "t-b2", "t-a2"]);
+	});
+
+	it("handles orphan tasks mixed with epic tasks", () => {
+		const tickets: TicketFrontMatter[] = [
+			makeFM({ id: "ep-01", type: "epic", title: "Epic" }),
+			makeFM({ id: "t-01", parent: "ep-01", priority: 2 }),
+			makeFM({ id: "t-orphan", priority: 1 }), // higher priority, no parent
+		];
+
+		const result = simulateAutoRun(tickets, new Map());
+
+		// Orphan processed first (higher priority)
+		assert.equal(result.order[0], "t-orphan");
+		assert.equal(result.order[1], "t-01");
+		// Epic closes after its sole child closes
+		assert.deepEqual(result.epicCloseOrder, ["ep-01"]);
+	});
+
+	it("terminates when all tickets are closed", () => {
+		const tickets: TicketFrontMatter[] = [
+			makeFM({ id: "ep-01", type: "epic" }),
+			makeFM({ id: "t-01", parent: "ep-01" }),
+		];
+
+		const result = simulateAutoRun(tickets, new Map());
+
+		assert.deepEqual(result.order, ["t-01"]);
+		assert.deepEqual(result.epicCloseOrder, ["ep-01"]);
+	});
+
+	it("does not process epic tickets as tasks", () => {
+		const tickets: TicketFrontMatter[] = [
+			makeFM({ id: "ep-01", type: "epic", priority: 0 }), // highest priority
+			makeFM({ id: "t-01", parent: "ep-01", priority: 2 }),
+		];
+
+		const result = simulateAutoRun(tickets, new Map());
+
+		// Epic never appears in task order
+		assert.ok(!result.order.includes("ep-01"));
+		assert.deepEqual(result.order, ["t-01"]);
+	});
+
+	it("each prompt includes correct remaining task count", () => {
+		const tickets: TicketFrontMatter[] = [
+			makeFM({ id: "t-01", priority: 1 }),
+			makeFM({ id: "t-02", priority: 2 }),
+			makeFM({ id: "t-03", priority: 3 }),
+		];
+
+		const result = simulateAutoRun(tickets, new Map());
+
+		assert.ok(result.prompts[0].includes("Remaining ready tasks: 3"));
+		assert.ok(result.prompts[1].includes("Remaining ready tasks: 2"));
+		assert.ok(result.prompts[2].includes("Remaining ready tasks: 1"));
+	});
+
+	it("blocked tasks become ready only after dep chain resolves", () => {
+		const tickets: TicketFrontMatter[] = [
+			makeFM({ id: "ep-01", type: "epic" }),
+			makeFM({ id: "ep-02", type: "epic" }),
+			makeFM({ id: "t-01", parent: "ep-01" }),
+			makeFM({ id: "t-02", parent: "ep-01", deps: ["t-01"] }),
+			// t-03 depends on ep-01 (the epic), not individual tasks
+			makeFM({ id: "t-03", parent: "ep-02", deps: ["ep-01"] }),
+			// t-04 depends on t-03
+			makeFM({ id: "t-04", parent: "ep-02", deps: ["t-03"] }),
+		];
+
+		const result = simulateAutoRun(tickets, new Map());
+
+		// t-01 first (no deps), t-02 next (dep t-01 closed),
+		// then ep-01 auto-closes → t-03 unblocked, t-04 after t-03
+		assert.deepEqual(result.order, ["t-01", "t-02", "t-03", "t-04"]);
+		assert.deepEqual(result.epicCloseOrder, ["ep-01", "ep-02"]);
 	});
 });
