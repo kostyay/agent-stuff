@@ -103,11 +103,17 @@ All notable changes to agent-stuff are documented here.
 
 
 
+
+
+## feat/swift-simplifier-skill
+
+Adds Swift language support to the code simplifier with a comprehensive new skill (#70). The `swift-code-simplifier` skill provides detailed refinement patterns and best practices for simplifying Swift code while preserving functionality, targeting Swift 6+ and following Apple's API Design Guidelines. Coverage includes modern idioms like async/await, actors, guard statements, optionals handling, protocol-oriented design, and access control principles. File extension detection now recognizes `.swift` files for automatic language routing.
+
 ## refactor/auto-run-simplification
 
 Simplified the `/ticket-run-all` auto-run flow to streamline ticket processing across epics (#69). The command now uses a single confirmation dialog instead of fork-strategy selection, automatically initiates context compaction via `ctx.compact()`, and removes the separate session creation logic—auto-run state is tracked in-memory for seamless continuation. Added comprehensive test coverage for cross-epic task dependencies, including `buildAutoRunPrompt()` and `buildEpicContextLine()` helpers that enable proper context switching when moving between epic scopes. The refactored flow maintains the core auto-run capability (context compaction between tasks, continuation via `agent_end`) while reducing cognitive overhead and improving agent readiness for multi-epic workflows.
 
-## docs/expand-github-skill-docs
+## [1.0.43](https://github.com/kostyay/agent-stuff/pull/64) - 2026-03-29
 
 Expanded the GitHub skill documentation (#64) with comprehensive `gh` CLI examples and best practices, including detailed sections on pull requests, GitHub Actions workflows, search, and API usage. The guide now covers practical command patterns for PR management (create, review, merge), workflow automation (triggering, monitoring, managing secrets/variables), and advanced querying with JSON filtering and GraphQL. Added a reference table for global flags and bulk operation patterns to improve discoverability and help users leverage the full capabilities of the GitHub CLI.
 

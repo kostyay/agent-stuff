@@ -57,6 +57,7 @@ const FILE_EXTENSIONS: Record<string, string> = {
 	".gemspec": "ruby",
 	".ru": "ruby",
 	".erb": "ruby",
+	".swift": "swift",
 };
 
 // ---------------------------------------------------------------------------
