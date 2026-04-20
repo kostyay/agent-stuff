@@ -47,7 +47,7 @@ All extensions live in [`pi-extensions/`](pi-extensions). Each file is a self-co
 | [`session-breakdown.ts`](pi-extensions/session-breakdown.ts) | `/session-breakdown` command — analyzes session usage (cost by model) with a GitHub-style activity graph |
 | [`session-namer.ts`](pi-extensions/session-namer.ts) | Auto-generates a short session name via Haiku after the first user request, re-generates on compaction or `/session-name-refresh`, and appends a mode emoji (📋/🧠) |
 | [`simplify.ts`](pi-extensions/simplify.ts) | `/simplify` command — detects the dominant language of changed files and runs the matching code-simplifier skill; accepts explicit file paths or falls back to git; auto-proposes after agent turns that modify source files with configurable threshold, file-hash dedup, and session-isolated queuing (`autoSimplify` setting) |
-| [`stash.ts`](pi-extensions/stash.ts) | Ctrl+Shift+S stashes the current editor draft for a quick side-question; auto-restores after the agent responds |
+| [`stash.ts`](pi-extensions/stash.ts) | `/stash` command stashes the current editor draft for a quick side-question; auto-restores after the agent responds |
 | [`status-bar.ts`](pi-extensions/status-bar.ts) | Rich three-line footer with model, context meter, cache/cost stats, git status, turn counter, color-coded profile badge, sandbox status, event-driven ticket/bgrun stats, streaming speed indicator, and thinking level display |
 | [`whimsical.ts`](pi-extensions/whimsical.ts) | Replaces "Thinking..." with random phrases like "Reticulating splines..." and "Consulting the void..." |
 | [`whoami.ts`](pi-extensions/whoami.ts) | `/whoami` command — prints the masked API key used for the current model's requests |
