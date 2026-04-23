@@ -109,6 +109,11 @@ All notable changes to agent-stuff are documented here.
 
 
 
+
+## chore/upgrade-dependencies
+
+Upgraded core dependencies to latest versions, including @anthropic-ai/sdk from 0.73.0 to 0.90.0 and AWS SDK packages to their latest releases (#74). Updated pi platform peer dependencies from ^0.63.1 to ^0.69.0 and added typebox ^1.1.32 as a new peer dependency requirement. These updates bring significant improvements to API compatibility, performance, and security across the AI integration layer and cloud service integrations, with corresponding adjustments made throughout the pi-extensions modules to maintain compatibility with the new dependency versions.
+
 ## docs/stash-slash-command-docs
 
 Documentation updates reflect the migration of the stash extension from keyboard shortcut (Ctrl+Shift+S) to slash command (`/stash`) for improved discoverability and consistency with other Pi extensions (#73). Additionally, a refactoring in `prompt-editor.ts` captures the theme reference at initialization time to prevent invalidation errors that could occur during render callbacks when the ExtensionContext becomes stale after session replacement or shutdown—the fix includes defensive try/catch handling in the border color renderer to gracefully degrade to uncolored text if the context is invalidated mid-render.
