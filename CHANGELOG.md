@@ -108,9 +108,10 @@ All notable changes to agent-stuff are documented here.
 
 
 
+
 ## docs/stash-slash-command-docs
 
-Updated the stash extension to use a slash command (`/stash`) instead of a keyboard shortcut (Ctrl+Shift+S) for stashing editor drafts (#73). This change improves discoverability and consistency with other Pi extensions that expose functionality via commands. The behavior remains unchanged—users can stash active drafts with `/stash` and auto-restore them after agent responses, but now through a more visible and accessible interface.
+Documentation updates reflect the migration of the stash extension from keyboard shortcut (Ctrl+Shift+S) to slash command (`/stash`) for improved discoverability and consistency with other Pi extensions (#73). Additionally, a refactoring in `prompt-editor.ts` captures the theme reference at initialization time to prevent invalidation errors that could occur during render callbacks when the ExtensionContext becomes stale after session replacement or shutdown—the fix includes defensive try/catch handling in the border color renderer to gracefully degrade to uncolored text if the context is invalidated mid-render.
 
 ## [1.0.44](https://github.com/kostyay/agent-stuff/pull/70) - 2026-04-16
 
