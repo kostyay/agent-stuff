@@ -348,8 +348,9 @@ function orderedModeNames(modes: Record<string, ModeSpec>): string[] {
 	return Object.keys(modes).filter((name) => name !== CUSTOM_MODE_NAME);
 }
 
-function getModeBorderColor(ctx: ExtensionContext, pi: ExtensionAPI, mode: string): (text: string) => string {
-	const theme = ctx.ui.theme;
+type CapturedTheme = ExtensionContext["ui"]["theme"];
+
+function getModeBorderColor(theme: CapturedTheme, pi: ExtensionAPI, mode: string): (text: string) => string {
 	const spec = runtime.data.modes[mode];
 
 	// Explicit color override in JSON.
@@ -363,7 +364,11 @@ function getModeBorderColor(ctx: ExtensionContext, pi: ExtensionAPI, mode: strin
 		}
 	}
 
-	// Default: derive from the current thinking level.
+	// Default: derive from the current thinking level. `pi.getThinkingLevel()`
+	// asserts the runtime is active and will throw if the extension was
+	// invalidated (session replacement / shutdown). The caller's try/catch
+	// handles that — we don't silently default here because a live editor
+	// should always reflect the real level.
 	return theme.getThinkingBorderColor(pi.getThinkingLevel());
 }
 
@@ -1157,18 +1162,30 @@ function historiesMatch(a: PromptEntry[], b: PromptEntry[]): boolean {
 }
 
 function setEditor(pi: ExtensionAPI, ctx: ExtensionContext, history: PromptEntry[]) {
+	// Capture the theme ref now (while `ctx` is live). Reading `ctx.ui.theme`
+	// later from inside a render callback can throw because the ExtensionRunner
+	// invalidates `ctx` on session replacement / shutdown, and the TUI's render
+	// timeout can still fire once after that, hitting `assertActive`.
+	const capturedTheme = ctx.ui.theme;
 	ctx.ui.setEditorComponent((tui, theme, keybindings) => {
 		const editor = new PromptEditor(tui, theme, keybindings);
 		requestEditorRender = () => editor.requestRenderNow();
 		editor.modeLabelProvider = () => runtime.currentMode;
 		// Keep the mode label color stable (match footer/status bar).
-		editor.modeLabelColor = (text: string) => ctx.ui.theme.fg("dim", text);
+		editor.modeLabelColor = (text: string) => capturedTheme.fg("dim", text);
 		const borderColor = (text: string) => {
-			const isBashMode = editor.getText().trimStart().startsWith("!");
-			if (isBashMode) {
-				return ctx.ui.theme.getBashModeBorderColor()(text);
+			try {
+				const isBashMode = editor.getText().trimStart().startsWith("!");
+				if (isBashMode) {
+					return capturedTheme.getBashModeBorderColor()(text);
+				}
+				return getModeBorderColor(capturedTheme, pi, runtime.currentMode)(text);
+			} catch {
+				// Extension context can be invalidated mid-render during session
+				// replacement or shutdown. Fall back to uncolored text — the TUI is
+				// about to be torn down anyway.
+				return text;
 			}
-			return getModeBorderColor(ctx, pi, runtime.currentMode)(text);
 		};
 
 		editor.borderColor = borderColor;
