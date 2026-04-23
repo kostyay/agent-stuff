@@ -34,9 +34,10 @@
     ]
   },
   "peerDependencies": {
-    "@mariozechner/pi-ai": "^0.63.1",
-    "@mariozechner/pi-coding-agent": "^0.63.1",
-    "@mariozechner/pi-tui": "^0.63.1"
+    "@mariozechner/pi-ai": "^0.69.0",
+    "@mariozechner/pi-coding-agent": "^0.69.0",
+    "@mariozechner/pi-tui": "^0.69.0",
+    "typebox": "^1.1.32"
   },
   "devDependencies": {
     "eslint": "^10.0.2",

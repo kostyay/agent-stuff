@@ -209,6 +209,12 @@ export default function statusBarExtension(pi: ExtensionAPI): void {
 		}
 	}
 
+	/** `unref()` a timer if supported so it doesn't keep the event loop alive. */
+	function unrefTimer(timer: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout>): void {
+		const withUnref = timer as { unref?: () => void };
+		withUnref.unref?.();
+	}
+
 	// External stats via pi.events
 	let ticketStats: TicketStats | null = null;
 	pi.events.on("ticket:stats", (data: unknown) => { ticketStats = data as TicketStats; });
@@ -278,6 +284,7 @@ export default function statusBarExtension(pi: ExtensionAPI): void {
 	function scheduleDiffRefresh(): void {
 		if (diffStatsTimer) clearTimeout(diffStatsTimer);
 		diffStatsTimer = setTimeout(() => refreshDiffStats(), 500);
+		unrefTimer(diffStatsTimer);
 	}
 
 	/** Fetch PR status for the current branch via gh CLI. */
@@ -309,6 +316,7 @@ export default function statusBarExtension(pi: ExtensionAPI): void {
 	function schedulePrRefresh(branch?: string | null): void {
 		if (prStatusTimer) clearTimeout(prStatusTimer);
 		prStatusTimer = setTimeout(() => refreshPrStatus(branch), 600);
+		unrefTimer(prStatusTimer);
 	}
 
 	/** Start a 60s polling interval to keep PR status up-to-date (e.g. detect merges). */
@@ -319,6 +327,7 @@ export default function statusBarExtension(pi: ExtensionAPI): void {
 			await refreshPrStatus(prStatusBranch, true);
 			tuiRef?.requestRender();
 		}, 60_000);
+		unrefTimer(prPollInterval);
 	}
 
 	function stopPrPoll(): void {
@@ -341,6 +350,7 @@ export default function statusBarExtension(pi: ExtensionAPI): void {
 				windowBytes = 0;
 				tuiRef?.requestRender();
 			}, 1000);
+			unrefTimer(renderTimer);
 		}
 	});
 
@@ -374,7 +384,30 @@ export default function statusBarExtension(pi: ExtensionAPI): void {
 
 	// ── Footer registration ────────────────────────────────────────────────
 
-	pi.on("session_start", async (_event, ctx) => {
+	// Live ctx reference, updated on every session_start so that the footer's
+	// render closure always sees the current (non-stale) context. On session
+	// replacement/reload the old ctx becomes stale; pending render ticks would
+	// otherwise hit the stale ctx getters and throw.
+	let currentCtx: ExtensionContext | null = null;
+
+	pi.on("session_start", async (event, ctx) => {
+		// Reset per-session state on any replacement (new/resume/fork).
+		// "reload" preserves the session, so keep counters running.
+		if (event.reason === "new" || event.reason === "resume" || event.reason === "fork") {
+			turnCount = 0;
+			agentActive = false;
+			diffStats = null;
+			prStatus = null;
+			prStatusBranch = null;
+			windowBytes = 0;
+			currentBytesPerSec = 0;
+			isStreaming = false;
+			stopRenderTimer();
+			stopPrPoll();
+		}
+
+		currentCtx = ctx;
+
 		for (const entry of ctx.sessionManager.getBranch()) {
 			if (entry.type === "message" && entry.message.role === "assistant") turnCount++;
 		}
@@ -393,26 +426,36 @@ export default function statusBarExtension(pi: ExtensionAPI): void {
 				dispose() { unsub(); stopRenderTimer(); stopPrPoll(); tuiRef = null; },
 				invalidate() {},
 				render(width: number): string[] {
-					return renderFooter(width, ctx, theme, footerData);
+					// Use the live ctx reference. If the extension instance is being
+					// torn down, currentCtx is cleared in session_shutdown and we
+					// render a blank footer to avoid touching a stale ctx.
+					const liveCtx = currentCtx;
+					if (!liveCtx) return ["", ""];
+					try {
+						return renderFooter(width, liveCtx, theme, footerData);
+					} catch {
+						// Ctx went stale between the check and the call (race during
+						// session replacement). Fall back to a blank footer; pi will
+						// dispose this factory and install a fresh one shortly.
+						return ["", ""];
+					}
 				},
 			};
 		});
 	});
 
-	pi.on("session_switch", async (event) => {
-		if (event.reason === "new") {
-			turnCount = 0;
-			agentActive = false;
-			diffStats = null;
-			prStatus = null;
-			prStatusBranch = null;
-			windowBytes = 0;
-			currentBytesPerSec = 0;
-			isStreaming = false;
-			stopRenderTimer();
-			stopPrPoll();
-			refreshDiffStats();
-		}
+	// Tear down the footer and all session-scoped resources BEFORE pi invalidates
+	// the ctx. Without this, a pending TUI render tick could call the footer's
+	// render() with a stale ctx and throw. See docs/extensions.md
+	// "Session replacement lifecycle and footguns".
+	pi.on("session_shutdown", async (_event, ctx) => {
+		stopRenderTimer();
+		stopPrPoll();
+		if (diffStatsTimer) { clearTimeout(diffStatsTimer); diffStatsTimer = null; }
+		if (prStatusTimer) { clearTimeout(prStatusTimer); prStatusTimer = null; }
+		currentCtx = null;
+		tuiRef = null;
+		if (ctx.hasUI) ctx.ui.setFooter(undefined);
 	});
 
 	// ── Render logic ───────────────────────────────────────────────────────

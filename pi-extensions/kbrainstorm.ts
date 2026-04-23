@@ -8,7 +8,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 
 import { showAskQuestion, type AskQuestionDetails, type OptionWithDesc } from "./lib/ask-question-ui.ts";
 

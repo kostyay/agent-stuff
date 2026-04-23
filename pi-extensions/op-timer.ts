@@ -76,7 +76,11 @@ export default function operationTimerExtension(pi: ExtensionAPI): void {
 		}
 	}
 
-	pi.on("session_start", async (_event, c) => {
+	pi.on("session_start", async (event, c) => {
+		// Reset on session replacement — old ctx reference is about to become stale.
+		if (event.reason === "new" || event.reason === "resume" || event.reason === "fork") {
+			stopOperation();
+		}
 		ctx = c;
 	});
 
@@ -102,7 +106,21 @@ export default function operationTimerExtension(pi: ExtensionAPI): void {
 		stopOperation();
 	});
 
-	pi.on("session_switch", async (event) => {
-		if (event.reason === "new") stopOperation();
+	// Tear down before pi invalidates ctx. Without this, the setInterval tick or
+	// a later stopOperation() call would hit stale ctx getters and throw.
+	pi.on("session_shutdown", async () => {
+		if (timer) {
+			clearInterval(timer);
+			timer = null;
+		}
+		if (widgetActive && ctx?.hasUI) {
+			ctx.ui.setWidget("op-timer", undefined);
+		}
+		widgetActive = false;
+		operationStart = null;
+		toolStart = null;
+		toolName = null;
+		tuiRef = null;
+		ctx = null;
 	});
 }

@@ -6,9 +6,9 @@
  * signal_loop_success tool.
  */
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { complete, type Api, type Model, type UserMessage } from "@mariozechner/pi-ai";
-import type { ExtensionAPI, ExtensionContext, SessionSwitchEvent } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { compact } from "@mariozechner/pi-coding-agent";
 import { Container, type SelectItem, SelectList, Text } from "@mariozechner/pi-tui";
 import { DynamicBorder } from "@mariozechner/pi-coding-agent";
@@ -437,10 +437,8 @@ export default function loopExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
-		await restoreLoopState(ctx);
-	});
-
-	pi.on("session_switch", async (_event: SessionSwitchEvent, ctx) => {
+		// Runs on every session replacement reason (startup/reload/new/resume/fork).
+		// restoreLoopState is idempotent and reads from the current branch.
 		await restoreLoopState(ctx);
 	});
 }

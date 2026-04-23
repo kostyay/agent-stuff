@@ -47,7 +47,7 @@ import {
 	type Focusable,
 	type SelectItem,
 } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -589,8 +589,9 @@ export default function ticketExtension(pi: ExtensionAPI) {
 		refreshUI(ctx);
 	});
 
-	pi.on("session_switch", async (_event, ctx) => refreshUI(ctx));
-	pi.on("session_fork", async (_event, ctx) => refreshUI(ctx));
+	// session_switch / session_fork merged into session_start in pi 0.65+.
+	// The handler above already fires for every reason (startup/reload/new/
+	// resume/fork), so only session_tree needs a separate subscription.
 	pi.on("session_tree", async (_event, ctx) => refreshUI(ctx));
 
 	// ── Auto-run continuation + nudge ──────────────────────────────────

@@ -332,9 +332,11 @@ describe("statusBarExtension", () => {
 		contextPercent?: number | null;
 	} = {}) {
 		let footerFactory: any = null;
+		let footerClearedFlag = false;
 
 		return {
 			ctx: {
+				hasUI: true,
 				sessionManager: {
 					getBranch: () => options.branch ?? [],
 				},
@@ -347,10 +349,18 @@ describe("statusBarExtension", () => {
 					? { percent: options.contextPercent, tokens: 1000, contextWindow: 200000 }
 					: undefined,
 				ui: {
-					setFooter: (factory: any) => { footerFactory = factory; },
+					setFooter: (factory: any) => {
+						if (factory === undefined) {
+							footerClearedFlag = true;
+							footerFactory = null;
+						} else {
+							footerFactory = factory;
+						}
+					},
 				},
 			} as any,
 			getFooterFactory: () => footerFactory,
+			footerCleared: () => footerClearedFlag,
 		};
 	}
 
@@ -387,7 +397,7 @@ describe("statusBarExtension", () => {
 		assert.ok(registeredEvents.includes("turn_end"));
 		assert.ok(registeredEvents.includes("agent_end"));
 		assert.ok(registeredEvents.includes("session_start"));
-		assert.ok(registeredEvents.includes("session_switch"));
+		assert.ok(registeredEvents.includes("session_shutdown"));
 	});
 
 	it("subscribes to ticket:stats and bgrun:stats events", () => {
@@ -618,7 +628,7 @@ describe("statusBarExtension", () => {
 		assert.ok(activeLines[1].includes("●"), "should show ● when active");
 	});
 
-	it("session_switch with reason 'new' resets turn count", async () => {
+	it("session_start with reason 'new' resets turn count", async () => {
 		const { pi, handlers } = createMockPI();
 		statusBarExtension(pi);
 
@@ -628,14 +638,40 @@ describe("statusBarExtension", () => {
 		await handlers.get("turn_end")![0]({}, {});
 
 		const { ctx, getFooterFactory } = createMockCtx({ branch: [] });
-		await handlers.get("session_switch")![0]({ reason: "new" }, ctx);
-		await handlers.get("session_start")![0]({}, ctx);
+		await handlers.get("session_start")![0]({ reason: "new" }, ctx);
 
 		const lines = renderFooter(getFooterFactory());
 		assert.ok(lines[0].includes("T0"), "turn count should be reset after new session");
 	});
 
-	it("session_switch with reason 'resume' does not reset state", async () => {
+	it("session_start with reason 'resume' rebuilds turn count from branch", async () => {
+		// Resume loads a different session file, so any in-memory counter from
+		// the previous session is discarded and rebuilt from the resumed branch.
+		const { pi, handlers } = createMockPI();
+		statusBarExtension(pi);
+
+		await handlers.get("turn_start")![0]({}, {});
+		await handlers.get("turn_end")![0]({}, {});
+
+		const branch = [
+			{ type: "message", message: { role: "user" } },
+			{
+				type: "message", message: {
+					role: "assistant",
+					usage: { input: 100, output: 50, cacheRead: 0, cacheCreation: 0, cost: { total: 0.01 } },
+				},
+			},
+		];
+		const { ctx, getFooterFactory } = createMockCtx({ branch });
+		await handlers.get("session_start")![0]({ reason: "resume" }, ctx);
+
+		const lines = renderFooter(getFooterFactory());
+		assert.ok(lines[0].includes("T1"), "turn count should reflect the resumed session's branch");
+	});
+
+	it("session_start with reason 'reload' preserves turn count", async () => {
+		// Reload keeps the same session, so in-memory counters survive; the
+		// handler re-counts from the branch which reflects the live session.
 		const { pi, handlers } = createMockPI();
 		statusBarExtension(pi);
 
@@ -643,11 +679,22 @@ describe("statusBarExtension", () => {
 		await handlers.get("turn_end")![0]({}, {});
 
 		const { ctx, getFooterFactory } = createMockCtx({ branch: [] });
-		await handlers.get("session_switch")![0]({ reason: "resume" }, ctx);
-		await handlers.get("session_start")![0]({}, ctx);
+		await handlers.get("session_start")![0]({ reason: "reload" }, ctx);
 
 		const lines = renderFooter(getFooterFactory());
-		assert.ok(lines[0].includes("T1"), "turn count should be preserved on resume");
+		assert.ok(lines[0].includes("T1"), "turn count should be preserved on reload");
+	});
+
+	it("session_shutdown tears down the footer and clears state", async () => {
+		const { pi, handlers } = createMockPI();
+		statusBarExtension(pi);
+
+		const { ctx, getFooterFactory, footerCleared } = createMockCtx({ branch: [] });
+		await handlers.get("session_start")![0]({ reason: "startup" }, ctx);
+		assert.ok(getFooterFactory(), "footer should be registered on session_start");
+
+		await handlers.get("session_shutdown")![0]({}, ctx);
+		assert.ok(footerCleared(), "setFooter(undefined) should be called on session_shutdown");
 	});
 
 	it("footer handles null context usage gracefully", async () => {

@@ -216,9 +216,13 @@ export default function sessionNamerExtension(pi: ExtensionAPI): void {
 
 	// ── Events ───────────────────────────────────────────────────────
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		resetState();
+		// For a brand-new session there's nothing to restore yet; for all other
+		// reasons (startup/reload/resume/fork) the session file already carries state.
+		if (event.reason === "new") return;
 		restoreFromSession(ctx);
+		if (baseName) applyName();
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
@@ -243,14 +247,8 @@ export default function sessionNamerExtension(pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.on("session_switch", async (event, ctx) => {
-		resetState();
-		if (event.reason === "new") return;
+	// session_switch folded into session_start above (pi 0.65+).
 
-		// Resume — restore state from the switched-to session
-		restoreFromSession(ctx);
-		if (baseName) applyName();
-	});
 
 	// ── Command ──────────────────────────────────────────────────────
 

@@ -19,7 +19,7 @@
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey, Text, truncateToWidth } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import {
 	type TmuxConfig,
 	buildTmuxConfig,
@@ -126,15 +126,14 @@ export default function bgrunExtension(pi: ExtensionAPI) {
 
 	// --- Session lifecycle ---
 
-	pi.on("session_start", async (_event, ctx) => {
-		initTmux(ctx.cwd);
-		await syncFromTmux();
-	});
-
-	pi.on("session_switch", async (event, _ctx) => {
+	pi.on("session_start", async (event, ctx) => {
+		// Fresh session (new conversation) — drop any background tasks
+		// that were attached to the previous session.
 		if (event.reason === "new") {
 			await killAll();
 		}
+		initTmux(ctx.cwd);
+		await syncFromTmux();
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {

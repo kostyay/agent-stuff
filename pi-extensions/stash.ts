@@ -98,14 +98,9 @@ export default function stashExtension(pi: ExtensionAPI): void {
 		clearStash(ctx);
 	}
 
+	// session_start fires for every replacement reason in pi 0.65+
+	// (startup/reload/new/resume/fork).
 	pi.on("session_start", async (_event, ctx) => {
-		stashedText = loadStash(ctx.cwd);
-		if (stashedText && ctx.hasUI) {
-			showWidget(ctx);
-		}
-	});
-
-	pi.on("session_switch", async (_event, ctx) => {
 		stashedText = loadStash(ctx.cwd);
 		if (stashedText && ctx.hasUI) {
 			showWidget(ctx);

@@ -810,11 +810,10 @@ export default function reviewExtension(pi: ExtensionAPI) {
 		applyReviewState(ctx);
 	}
 
+	// session_start fires for every replacement reason in pi 0.65+
+	// (startup/reload/new/resume/fork), so one handler covers what used to
+	// require both session_start and session_switch.
 	pi.on("session_start", (_event, ctx) => {
-		applyAllReviewState(ctx);
-	});
-
-	pi.on("session_switch", (_event, ctx) => {
 		applyAllReviewState(ctx);
 	});
 

@@ -47,7 +47,7 @@ import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
 import { complete, type Model, type Api, type UserMessage, type TextContent } from "@mariozechner/pi-ai";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { Box, Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { promises as fs } from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -1058,17 +1058,19 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
-	pi.on("session_switch", async (_event, ctx) => {
-		await refreshServer(ctx);
-	});
-
 	pi.on("session_shutdown", async () => {
 		if (state.aliasTimer) {
 			clearInterval(state.aliasTimer);
 			state.aliasTimer = null;
 		}
-		updateStatus(state.context, false);
-		updateSessionEnv(state.context, false);
+		const prevCtx = state.context;
+		// Clear context reference before it becomes stale. Any in-flight IPC
+		// handler or alias sync must guard with `if (!state.context) return`.
+		state.context = null;
+		if (prevCtx) {
+			try { updateStatus(prevCtx, false); } catch { /* ctx may already be invalidated */ }
+			try { updateSessionEnv(prevCtx, false); } catch { /* ditto */ }
+		}
 		await stopControlServer(state);
 	});
 

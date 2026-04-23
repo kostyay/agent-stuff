@@ -1299,22 +1299,9 @@ export default function (pi: ExtensionAPI) {
 		applyEditor(pi, ctx);
 	});
 
-	pi.on("session_switch", async (_event, ctx) => {
-		lastObservedModel = { provider: ctx.model?.provider, modelId: ctx.model?.id };
-		await ensureRuntime(pi, ctx);
-		customOverlay = null;
-
-		const inferred = inferModeFromSelection(ctx, pi, runtime.data);
-		if (inferred) {
-			runtime.currentMode = inferred;
-			runtime.lastRealMode = inferred;
-		} else {
-			runtime.currentMode = CUSTOM_MODE_NAME;
-			customOverlay = getCurrentSelectionSpec(pi, ctx);
-		}
-
-		applyEditor(pi, ctx);
-	});
+	// session_switch merged into session_start in pi 0.65+. The session_start
+	// handler above already runs on every replacement reason
+	// (new/resume/fork/reload), so no additional handler is needed here.
 
 
 	pi.on("model_select", async (event, ctx) => {
