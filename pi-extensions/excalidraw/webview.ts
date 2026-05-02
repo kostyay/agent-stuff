@@ -57,6 +57,11 @@ const STYLES = `
   /* Lift the zoom-control footer above our Copy SVG button + status text. */
   .excalidraw-container .excalidraw .layer-ui__wrapper__footer-left { z-index: 15 !important; }
 
+  /* Excalidraw's dark theme normally applies an invert+hue-rotate filter to the
+     canvas which clamps the darkest renderable color to ~#121212. We disable it
+     so viewBackgroundColor wins and dark mode can actually be true black. */
+  .excalidraw-container .excalidraw.theme--dark canvas { filter: none !important; }
+
   #loading {
     position: fixed; inset: 0; z-index: 30;
     display: flex; flex-direction: column; align-items: center; justify-content: center;

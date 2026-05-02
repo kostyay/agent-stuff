@@ -21,11 +21,12 @@ import { Text } from "@mariozechner/pi-tui";
 import { Type } from "typebox";
 import { execFile } from "node:child_process";
 import crypto from "node:crypto";
+import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { RECALL_CHEAT_SHEET } from "./cheat-sheet.ts";
 import {
 	extractStreamingElements,
 	resolveElements,
@@ -69,12 +70,26 @@ let streamThrottleTimer: ReturnType<typeof setTimeout> | null = null;
 let streamPendingPayload: { elements: ExcalidrawElement[]; viewport: Viewport | null } | null = null;
 const STREAM_THROTTLE_MS = 80;
 
-/** Cheat sheet with the now-stale "Thanks for calling read_me!" line stripped,
- *  since the read_me tool no longer exists — the sheet is injected directly. */
-const INLINE_CHEAT_SHEET = RECALL_CHEAT_SHEET.replace(
-	/^Thanks for calling read_me![^\n]*\n+/m,
-	"",
-);
+/** Directory holding standalone prompt markdown files for this extension. */
+const PROMPTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "prompts");
+
+/** Read a prompt markdown file from `prompts/` at module load time. */
+function loadPrompt(name: string): string {
+	return readFileSync(path.join(PROMPTS_DIR, name), "utf8");
+}
+
+/** Excalidraw element-format reference injected into the system prompt while
+ *  /excalidraw mode is active. */
+const ELEMENT_FORMAT_PROMPT = loadPrompt("element-format.md");
+
+/** User-message template for /excalidraw. The literal `{{task}}` placeholder
+ *  is replaced with the user's diagram description. */
+const DRAW_INSTRUCTION_TEMPLATE = loadPrompt("draw-instruction.md");
+
+/** Best-effort error message extraction for arbitrary thrown values. */
+function errorMessage(e: unknown): string {
+	return (e as Error)?.message ?? String(e);
+}
 
 /**
  * Lazily import the glimpseui module. Tries the bare specifier first (works when
@@ -130,6 +145,16 @@ function sendCopyResult(win: GlimpseWindow, target: "svg" | "png", ok: boolean, 
 	win.send(`window.__piOnCopyResult?.(${JSON.stringify(payload)})`);
 }
 
+/** Run a copy task and ack the webview with success or the error message. */
+async function runCopy(win: GlimpseWindow, target: "svg" | "png", task: () => Promise<void>): Promise<void> {
+	try {
+		await task();
+		sendCopyResult(win, target, true);
+	} catch (e) {
+		sendCopyResult(win, target, false, errorMessage(e));
+	}
+}
+
 /** Handle a message from the webview. Routes `copy-svg` and `copy-png` requests
  *  to the appropriate clipboard writer and acks the webview UI. */
 async function handleWebviewMessage(win: GlimpseWindow, data: unknown): Promise<void> {
@@ -137,22 +162,14 @@ async function handleWebviewMessage(win: GlimpseWindow, data: unknown): Promise<
 	const msg = data as { type?: unknown; svg?: unknown; base64?: unknown };
 
 	if (msg.type === "copy-svg" && typeof msg.svg === "string") {
-		try {
-			await copyToClipboard(msg.svg);
-			sendCopyResult(win, "svg", true);
-		} catch (e) {
-			sendCopyResult(win, "svg", false, (e as Error).message ?? String(e));
-		}
+		const svg = msg.svg;
+		await runCopy(win, "svg", () => copyToClipboard(svg));
 		return;
 	}
 
 	if (msg.type === "copy-png" && typeof msg.base64 === "string") {
-		try {
-			await copyPngToClipboard(Buffer.from(msg.base64, "base64"));
-			sendCopyResult(win, "png", true);
-		} catch (e) {
-			sendCopyResult(win, "png", false, (e as Error).message ?? String(e));
-		}
+		const base64 = msg.base64;
+		await runCopy(win, "png", () => copyPngToClipboard(Buffer.from(base64, "base64")));
 		return;
 	}
 }
@@ -283,7 +300,7 @@ export default function excalidrawExtension(pi: ExtensionAPI): void {
 				if (!Array.isArray(raw)) return errorResult("Elements must be a JSON array.");
 				parsed = raw as ExcalidrawElement[];
 			} catch (e) {
-				return errorResult(`Invalid JSON in elements: ${(e as Error).message}`);
+				return errorResult(`Invalid JSON in elements: ${errorMessage(e)}`);
 			}
 
 			let resolved: ExcalidrawElement[];
@@ -291,7 +308,7 @@ export default function excalidrawExtension(pi: ExtensionAPI): void {
 			try {
 				({ resolved, viewport } = resolveElements(parsed, (id) => checkpoints.get(id)));
 			} catch (e) {
-				return errorResult((e as Error).message);
+				return errorResult(errorMessage(e));
 			}
 
 			const checkpointId = crypto.randomUUID().replace(/-/g, "").slice(0, 18);
@@ -301,7 +318,7 @@ export default function excalidrawExtension(pi: ExtensionAPI): void {
 			try {
 				await ensureWindow({ elements: resolved, viewport });
 			} catch (e) {
-				return errorResult(`Preview window failed: ${(e as Error).message}`);
+				return errorResult(`Preview window failed: ${errorMessage(e)}`);
 			}
 
 			const text =
@@ -369,19 +386,14 @@ export default function excalidrawExtension(pi: ExtensionAPI): void {
 				return;
 			}
 			cheatSheetActive = true;
-			pi.sendUserMessage(
-				`Draw the following diagram with the \`draw_diagram\` tool. Use the Excalidraw element format from the system prompt. Stream a cameraUpdate first, then build the diagram progressively.\n\n${task}`,
-			);
+			pi.sendUserMessage(DRAW_INSTRUCTION_TEMPLATE.replace("{{task}}", task));
 		},
 	});
 
 	pi.on("before_agent_start", async (event) => {
 		if (!cheatSheetActive) return;
 		return {
-			systemPrompt:
-				event.systemPrompt +
-				"\n\n## Excalidraw element format reference\n\n" +
-				INLINE_CHEAT_SHEET,
+			systemPrompt: `${event.systemPrompt}\n\n## Excalidraw element format reference\n\n${ELEMENT_FORMAT_PROMPT}`,
 		};
 	});
 
@@ -421,7 +433,10 @@ export default function excalidrawExtension(pi: ExtensionAPI): void {
 			streamBuffers.delete(me.toolCall.id);
 			// Cancel any pending throttled update — the tool's execute() will fire
 			// the canonical final render shortly via ensureWindow().
-			if (streamThrottleTimer) { clearTimeout(streamThrottleTimer); streamThrottleTimer = null; }
+			if (streamThrottleTimer) {
+				clearTimeout(streamThrottleTimer);
+				streamThrottleTimer = null;
+			}
 			streamPendingPayload = null;
 		}
 	});

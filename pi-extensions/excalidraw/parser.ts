@@ -60,17 +60,25 @@ export function parsePartialElementArray(
 ): { elements: ExcalidrawElement[]; partial: boolean } {
 	const trimmed = arrayText.trim();
 	if (!trimmed.startsWith("[")) return { elements: [], partial: true };
+
 	try {
 		return { elements: JSON.parse(trimmed) as ExcalidrawElement[], partial: false };
-	} catch { /* partial */ }
+	} catch { /* fall through to recovery */ }
+
 	const lastClose = trimmed.lastIndexOf("}");
 	if (lastClose < 0) return { elements: [], partial: true };
+
 	try {
-		return {
-			elements: JSON.parse(trimmed.substring(0, lastClose + 1) + "]") as ExcalidrawElement[],
-			partial: true,
-		};
-	} catch { return { elements: [], partial: true }; }
+		const recovered = `${trimmed.substring(0, lastClose + 1)}]`;
+		return { elements: JSON.parse(recovered) as ExcalidrawElement[], partial: true };
+	} catch {
+		return { elements: [], partial: true };
+	}
+}
+
+/** Try to JSON-parse a string body wrapped in quotes, returning undefined on failure. */
+function tryParseJsonString(body: string): string | undefined {
+	try { return JSON.parse(`"${body}"`) as string; } catch { return undefined; }
 }
 
 /** Extract whatever Excalidraw elements we can parse out of a partial stream
@@ -84,12 +92,14 @@ export function parsePartialElementArray(
 export function extractStreamingElements(argsStr: string): ExcalidrawElement[] {
 	const match = argsStr.match(/"elements"\s*:\s*"/);
 	if (!match || match.index === undefined) return [];
+
 	let inner = argsStr.substring(match.index + match[0].length);
 	inner = inner.substring(0, findJsonStringEnd(inner));
 	if (inner.endsWith("\\")) inner = inner.slice(0, -1);
-	let unescaped: string | undefined;
-	try { unescaped = JSON.parse('"' + inner + '"'); } catch { /* truncated escape */ }
+
+	const unescaped = tryParseJsonString(inner);
 	if (unescaped === undefined) return [];
+
 	return parsePartialElementArray(unescaped).elements;
 }
 
