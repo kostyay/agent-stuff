@@ -10,7 +10,7 @@
   "type": "module",
   "scripts": {
     "lint": "eslint --fix pi-extensions/ tests/ && npx tsc --noEmit",
-    "test": "npm run lint && node --experimental-strip-types --test tests/*.test.ts"
+    "test": "npm run lint && node --experimental-strip-types --test tests/*.test.ts pi-extensions/**/*.test.ts"
   },
   "keywords": [
     "pi-package",
