@@ -12,6 +12,12 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
+/** Subset of CommandContext used by post-rebase helpers. */
+interface CommandUI {
+	notify: (message: string, type?: "info" | "warning" | "error") => void;
+	confirm: (title: string, msg: string) => Promise<boolean>;
+}
+
 /** Detect the default branch name from the remote (main or master). */
 async function detectDefaultBranch(pi: ExtensionAPI): Promise<string | null> {
 	// Try symbolic-ref first (most reliable)
@@ -26,19 +32,10 @@ async function detectDefaultBranch(pi: ExtensionAPI): Promise<string | null> {
 	}
 
 	// Fall back: check which of main/master exists on the remote
-	const { code: mainCode } = await pi.exec("git", [
-		"rev-parse",
-		"--verify",
-		"origin/main",
-	]);
-	if (mainCode === 0) return "main";
-
-	const { code: masterCode } = await pi.exec("git", [
-		"rev-parse",
-		"--verify",
-		"origin/master",
-	]);
-	if (masterCode === 0) return "master";
+	for (const name of ["main", "master"]) {
+		const { code } = await pi.exec("git", ["rev-parse", "--verify", `origin/${name}`]);
+		if (code === 0) return name;
+	}
 
 	return null;
 }
@@ -58,9 +55,7 @@ async function countCommitsAhead(pi: ExtensionAPI, baseRef: string): Promise<num
 		"--count",
 		`${baseRef}..HEAD`,
 	]);
-	if (code === 0) {
-		return parseInt(stdout.trim(), 10) || 0;
-	}
+	if (code === 0) return parseInt(stdout.trim(), 10) || 0;
 	return 0;
 }
 
@@ -93,7 +88,63 @@ Please resolve all conflicts in these files:
 Important:
 - Do NOT run \`git rebase --abort\`
 - Preserve the intent of both sides when merging
-- If a conflict is genuinely ambiguous, prefer the changes from the current branch (ours)`;
+- If a conflict is genuinely ambiguous, prefer the changes from the current branch (ours)
+
+Safety protocol — do NOT:
+- Run \`git push --force\` (only \`--force-with-lease\` if explicitly asked)
+- Run \`git commit --no-verify\` or skip hooks
+- Modify git config
+- Stage .env files, credentials, private keys, or secrets`;
+}
+
+/** Show a short log summary after a successful rebase. */
+async function showRebaseSummary(
+	pi: ExtensionAPI,
+	ctx: { ui: CommandUI },
+	currentBranch: string,
+	defaultBranch: string,
+): Promise<void> {
+	const rebasedCount = await countCommitsAhead(pi, `origin/${defaultBranch}`);
+	const { stdout: shortLog } = await pi.exec("git", [
+		"log",
+		"--oneline",
+		"-10",
+		`origin/${defaultBranch}..HEAD`,
+	]);
+	const { stdout: headSha } = await pi.exec("git", ["rev-parse", "--short", "HEAD"]);
+	const logPreview = shortLog.trim() ? `\n${shortLog.trim()}` : "";
+	ctx.ui.notify(
+		`Rebase complete — ${rebasedCount} commit${rebasedCount !== 1 ? "s" : ""} on ${currentBranch} (HEAD: ${headSha.trim()})${logPreview}`,
+		"info",
+	);
+}
+
+/** Offer to force-push-with-lease after a successful rebase. */
+async function offerForcePush(
+	pi: ExtensionAPI,
+	ctx: { ui: CommandUI },
+	currentBranch: string,
+): Promise<void> {
+	const { code } = await pi.exec("git", ["rev-parse", "--verify", `origin/${currentBranch}`]);
+	if (code !== 0) return;
+
+	const pushConfirmed = await ctx.ui.confirm(
+		"Force Push",
+		`Rebase rewrote history. Push ${currentBranch} with --force-with-lease?`,
+	);
+	if (!pushConfirmed) return;
+
+	const { code: pushCode, stderr: pushErr } = await pi.exec("git", [
+		"push",
+		"--force-with-lease",
+		"origin",
+		currentBranch,
+	]);
+	if (pushCode === 0) {
+		ctx.ui.notify(`Pushed ${currentBranch} to origin.`, "info");
+	} else {
+		ctx.ui.notify(`Push failed: ${pushErr}`, "error");
+	}
 }
 
 export default function gitRebaseMasterExtension(pi: ExtensionAPI) {
@@ -150,11 +201,13 @@ export default function gitRebaseMasterExtension(pi: ExtensionAPI) {
 			ctx.ui.notify(`Rebasing ${currentBranch} onto origin/${defaultBranch}...`, "info");
 			const { code: rebaseCode, stderr: rebaseErr } = await pi.exec("git", [
 				"rebase",
+				"--autostash",
 				`origin/${defaultBranch}`,
 			]);
 
 			if (rebaseCode === 0) {
-				ctx.ui.notify("Rebase completed successfully — no conflicts.", "info");
+				await showRebaseSummary(pi, ctx, currentBranch, defaultBranch);
+				await offerForcePush(pi, ctx, currentBranch);
 				return;
 			}
 
